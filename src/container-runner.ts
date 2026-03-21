@@ -238,6 +238,14 @@ function buildContainerArgs(
     );
   }
 
+  // Inject BRIDGE_SECRET for mac-control skill (read directly — not a Claude credential)
+  const envPath = path.join(process.cwd(), 'data', 'env', 'env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf-8');
+    const match = envContent.match(/^BRIDGE_SECRET=(.+)$/m);
+    if (match) args.push('-e', `BRIDGE_SECRET=${match[1].trim()}`);
+  }
+
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
 
