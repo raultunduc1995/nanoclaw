@@ -1,5 +1,5 @@
 ---
-name: add-mac-control
+name: setup-mac-control
 description: Add Mac Control to NanoClaw — lets the agent run shell commands, AppleScript, and system actions (restart, sleep, lock) on Macs on the local network. Supports multiple Macs identified by name.
 ---
 
@@ -39,23 +39,25 @@ ls host-bridge/bridge.js 2>/dev/null && echo "EXISTS" || echo "NOT FOUND"
 
 If EXISTS, skip to Phase 3 (fixed IP setup).
 
-## Phase 2: Merge the skill branch
+## Phase 2: Enable Mac Control feature flag
 
-Fetch and merge the `skill/mac-control` branch. This brings in the host bridge, container skill, and container-runner changes.
+Enable the `ENABLE_MAC_CONTROL` feature flag so that `BRIDGE_SECRET` is injected into containers.
 
+Add to `.env`:
 ```bash
-git fetch origin skill/mac-control
-git merge origin/skill/mac-control --no-edit
+echo "" >> .env
+echo "ENABLE_MAC_CONTROL=true" >> .env
 ```
 
-If the merge has conflicts with `package-lock.json`, resolve by keeping theirs:
+Or if using `.env.defaults`:
 ```bash
-git checkout --theirs package-lock.json && git add package-lock.json && git merge --continue
+echo "" >> .env
+echo "ENABLE_MAC_CONTROL=true" >> .env.defaults
 ```
 
-Verify the files arrived:
+Verify the flag is set:
 ```bash
-ls host-bridge/bridge.js host-bridge/install.sh host-bridge/mac-hosts-example.json container/skills/mac-control/SKILL.md
+grep ENABLE_MAC_CONTROL .env .env.defaults 2>/dev/null
 ```
 
 ## Phase 3: Set a fixed IP on each Mac
@@ -284,6 +286,29 @@ AskUserQuestion: "Did Nanoclaw successfully run the command?"
   - "No, there's an error" (description: "I'll help troubleshoot")
 
 If error, ask the user to share Nanoclaw's response and check the troubleshooting section below.
+
+## Deactivating Mac Control
+
+To disable mac-control without removing files, set the feature flag to `false` in `.env`:
+
+```bash
+sed -i '' 's/^ENABLE_MAC_CONTROL=true$/ENABLE_MAC_CONTROL=false/' .env
+```
+
+Then rebuild and restart:
+```bash
+npm run build
+launchctl kickstart -k gui/$(id -u)/com.nanoclaw
+```
+
+This stops `BRIDGE_SECRET` from being injected into containers. The host bridge services continue running but are unreachable from the agent.
+
+To also stop the bridge services on each Mac:
+```bash
+launchctl bootout gui/$(id -u)/com.nanoclaw.bridge
+```
+
+To re-enable, set `ENABLE_MAC_CONTROL=true` in `.env` and restart.
 
 ## Troubleshooting
 
