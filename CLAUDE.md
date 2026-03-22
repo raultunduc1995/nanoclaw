@@ -29,10 +29,12 @@ API keys, secret keys, OAuth tokens, and auth credentials are managed by the One
 
 Four types of skills exist in NanoClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full taxonomy and guidelines.
 
-- **Feature skills** — merge a `skill/*` branch to add capabilities (e.g. `/add-telegram`, `/add-slack`)
+- **Feature skills** — bundled feature modules (`src/<feature>/`) gated by feature flags (e.g. `/add-whatsapp`, `/add-telegram`)
 - **Utility skills** — ship code files alongside SKILL.md (e.g. `/claw`)
 - **Operational skills** — instruction-only workflows, always on `main` (e.g. `/setup`, `/debug`)
 - **Container skills** — loaded inside agent containers at runtime (`container/skills/`)
+
+Feature skills are bundled as feature modules gated by feature flags in `.env`. SKILL.md files on `main` contain setup instructions that guide enabling the feature and interactive configuration.
 
 | Skill | When to Use |
 |-------|-------------|
@@ -72,7 +74,7 @@ systemctl --user restart nanoclaw
 
 ## Troubleshooting
 
-**WhatsApp not connecting after upgrade:** WhatsApp is now a separate skill, not bundled in core. Run `/add-whatsapp` (or `npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp && npm run build`) to install it. Existing auth credentials and groups are preserved.
+**WhatsApp not connecting after upgrade:** WhatsApp is now a separate skill, not bundled in core. Run `/add-whatsapp` to install it. Existing auth credentials and groups are preserved.
 
 ## Container Build Cache
 

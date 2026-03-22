@@ -10,7 +10,7 @@ import { logger } from './logger.js';
  */
 export function readEnvFile(keys: string[]): Record<string, string> {
   const envFile = path.join(process.cwd(), '.env');
-  
+
   let content: string | null = readFileContent(envFile);
   if (!content) {
     logger.debug('.env file is empty or missing, using defaults');
@@ -21,7 +21,10 @@ export function readEnvFile(keys: string[]): Record<string, string> {
   return result;
 }
 
-function extractEnvVariables(keys: string[], content: string): Record<string, string> {
+function extractEnvVariables(
+  keys: string[],
+  content: string,
+): Record<string, string> {
   const result: Record<string, string> = {};
   const wanted = new Set(keys);
 
@@ -33,8 +36,10 @@ function extractEnvVariables(keys: string[], content: string): Record<string, st
     const key = trimmed.slice(0, eqIdx).trim();
     if (!wanted.has(key)) continue;
     let value = trimmed.slice(eqIdx + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))) {
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
       value = value.slice(1, -1);
     }
     if (value) result[key] = value;

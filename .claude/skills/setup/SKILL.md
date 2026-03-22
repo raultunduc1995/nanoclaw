@@ -200,13 +200,13 @@ For each selected channel, invoke its skill:
 - **Discord:** Invoke `/add-discord`
 
 Each skill will:
-1. Install the channel code (via `git merge` of the skill branch)
+1. Enable the channel's feature flag in `.env`
 2. Collect credentials/tokens and write to `.env`
 3. Authenticate (WhatsApp QR/pairing, or verify token-based connection)
 4. Register the chat with the correct JID format
 5. Build and verify
 
-**After all channel skills complete**, install dependencies and rebuild — channel merges may introduce new packages:
+**After all channel skills complete**, install dependencies and rebuild:
 
 ```bash
 npm install && npm run build

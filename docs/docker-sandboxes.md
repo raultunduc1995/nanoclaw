@@ -194,18 +194,16 @@ bash container/build.sh
 ### Telegram
 
 ```bash
-# Apply the Telegram skill
-npx tsx scripts/apply-skill.ts .claude/skills/add-telegram
-
-# Rebuild after applying the skill
-npm run build
-
-# Configure .env
+# Enable the Telegram feature flag and configure .env
 cat > .env << EOF
 TELEGRAM_BOT_TOKEN=<your-token-from-botfather>
+ENABLE_TELEGRAM_CHANNEL=true
 ASSISTANT_NAME=nanoclaw
 ANTHROPIC_API_KEY=proxy-managed
 EOF
+
+# Rebuild
+npm run build
 mkdir -p data/env && cp .env data/env/env
 
 # Register your chat
@@ -227,33 +225,34 @@ curl -s --proxy $HTTPS_PROXY "https://api.telegram.org/bot<TOKEN>/getUpdates" | 
 
 **Telegram in groups:** Disable Group Privacy in @BotFather (`/mybots` > Bot Settings > Group Privacy > Turn off), then remove and re-add the bot.
 
-**Important:** If the Telegram skill creates `src/channels/telegram.ts`, you'll need to patch it for proxy support. Add an `HttpsProxyAgent` and pass it to grammy's `Bot` constructor via `baseFetchConfig.agent`. Then rebuild.
+**Important:** The Telegram feature module (`src/telegram/channel-client/`) needs proxy patches for sandbox use — add an `HttpsProxyAgent` and pass it to grammy's `Bot` constructor via `baseFetchConfig.agent`. Then rebuild.
 
 ### WhatsApp
 
 Make sure you configured proxy bypass in [Step 1](#step-1-create-the-sandbox) first.
 
 ```bash
-# Apply the WhatsApp skill
-npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp
-
-# Rebuild
-npm run build
+# WhatsApp is bundled in the codebase — no branch merge needed.
+# Just enable the feature flag and rebuild.
 
 # Configure .env
 cat > .env << EOF
 ASSISTANT_NAME=nanoclaw
 ANTHROPIC_API_KEY=proxy-managed
+ENABLE_WHATSAPP_CHANNEL=true
 EOF
+
+# Rebuild
+npm run build
 mkdir -p data/env && cp .env data/env/env
 
 # Authenticate (choose one):
 
 # QR code — scan with WhatsApp camera:
-npx tsx src/whatsapp-auth.ts
+npx tsx src/whatsapp/auth.ts
 
 # OR pairing code — enter code in WhatsApp > Linked Devices > Link with phone number:
-npx tsx src/whatsapp-auth.ts --pairing-code --phone <phone-number-no-plus>
+npx tsx src/whatsapp/auth.ts --pairing-code --phone <phone-number-no-plus>
 
 # Register your chat (JID = your phone number + @s.whatsapp.net)
 npx tsx setup/index.ts --step register \
@@ -267,11 +266,11 @@ npx tsx setup/index.ts --step register \
   --no-trigger-required
 ```
 
-**Important:** The WhatsApp skill files (`src/channels/whatsapp.ts` and `src/whatsapp-auth.ts`) also need proxy patches — add `HttpsProxyAgent` for WebSocket connections and a proxy-aware version fetch. Then rebuild.
+**Important:** The WhatsApp skill files (`src/whatsapp/channel-client/client.ts` and `src/whatsapp/auth.ts`) also need proxy patches — add `HttpsProxyAgent` for WebSocket connections and a proxy-aware version fetch. Then rebuild.
 
 ### Both Channels
 
-Apply both skills, patch both for proxy support, combine the `.env` variables, and register each chat separately.
+Enable both feature flags (`ENABLE_TELEGRAM_CHANNEL=true`, `ENABLE_WHATSAPP_CHANNEL=true`), patch both for proxy support, combine the `.env` variables, and register each chat separately.
 
 ## Step 7: Run
 
@@ -355,5 +354,5 @@ Run the auth command interactively inside the sandbox (not piped through `docker
 ```bash
 docker sandbox run shell-nanoclaw-workspace
 # Then inside:
-npx tsx src/whatsapp-auth.ts
+npx tsx src/whatsapp/auth.ts
 ```

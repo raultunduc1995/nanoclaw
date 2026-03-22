@@ -108,9 +108,9 @@ The codebase is small enough that Claude can safely modify it.
 
 **Don't add features. Add skills.**
 
-If you want to add Telegram support, don't create a PR that adds Telegram to the core codebase. Instead, fork NanoClaw, make the code changes on a branch, and open a PR. We'll create a `skill/telegram` branch from your PR that other users can merge into their fork.
+If you want to add Telegram support, don't create a PR that adds Telegram to the core codebase. Instead, contribute a feature module (`src/telegram/`) gated by a feature flag, with a SKILL.md that guides setup.
 
-Users then run `/add-telegram` on their fork and get clean code that does exactly what they need, not a bloated system trying to support every use case.
+Users then run `/add-telegram` on their fork, enable the feature flag, and get clean code that does exactly what they need.
 
 ### RFS (Request for Skills)
 

@@ -86,7 +86,7 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 
 ## Architecture: Channel System
 
-The core ships with no channels built in — each channel (WhatsApp, Telegram, Slack, Discord, Gmail) is installed as a [Claude Code skill](https://code.claude.com/docs/en/skills) that adds the channel code to your fork. Channels self-register at startup; installed channels with missing credentials emit a WARN log and are skipped.
+Channels self-register at startup; channels with missing credentials emit a WARN log and are skipped. Some channels (like WhatsApp) are bundled as feature modules gated by feature flags. Others (Telegram, Slack, Discord, Gmail) are installed as [Claude Code skills](https://code.claude.com/docs/en/skills) that add channel code via branch merges.
 
 ### System Diagram
 
@@ -175,32 +175,32 @@ interface Channel {
 
 ### Self-Registration Pattern
 
-Channels self-register using a barrel-import pattern:
+Channels self-register using a barrel-import pattern. There are two approaches:
 
-1. Each channel skill adds a file to `src/channels/` (e.g. `whatsapp.ts`, `telegram.ts`) that calls `registerChannel()` at module load time:
-
-   ```typescript
-   // src/channels/whatsapp.ts
-   import { registerChannel, ChannelOpts } from './registry.js';
-
-   export class WhatsAppChannel implements Channel { /* ... */ }
-
-   registerChannel('whatsapp', (opts: ChannelOpts) => {
-     // Return null if credentials are missing
-     if (!existsSync(authPath)) return null;
-     return new WhatsAppChannel(opts);
-   });
-   ```
-
-2. The barrel file `src/channels/index.ts` imports all channel modules, triggering registration:
+**Feature modules** (bundled channels like WhatsApp) live under `src/<channel>/` as self-contained modules with their own barrel file. They are conditionally imported in `src/channels/index.ts` based on feature flags:
 
    ```typescript
-   import './whatsapp.js';
-   import './telegram.js';
-   // ... each skill adds its import here
+   // src/channels/index.ts
+   import { ENABLE_WHATSAPP_CHANNEL } from '../config.js';
+
+   if (ENABLE_WHATSAPP_CHANNEL) {
+     await import('../whatsapp/channel-client/index.js');
+   }
    ```
 
-3. At startup, the orchestrator (`src/index.ts`) loops through registered channels and connects whichever ones return a valid instance:
+   The feature module's entry point calls `registerChannel()` at import time:
+
+   ```typescript
+   // src/whatsapp/channel-client/index.ts
+   import { ChannelOpts, registerChannel } from '../../channels/registry.js';
+   import { WhatsAppChannel } from './client.js';
+
+   registerChannel('whatsapp', (opts: ChannelOpts) => new WhatsAppChannel(opts));
+   ```
+
+**Skill-based channels** (Telegram, Slack, etc.) add a file to `src/channels/` (e.g. `telegram.ts`) that calls `registerChannel()` at module load, and add a static import to `src/channels/index.ts`.
+
+At startup, the orchestrator (`src/index.ts`) loops through registered channels and connects whichever ones return a valid instance:
 
    ```typescript
    for (const name of getRegisteredChannelNames()) {
@@ -218,7 +218,9 @@ Channels self-register using a barrel-import pattern:
 | File | Purpose |
 |------|---------|
 | `src/channels/registry.ts` | Channel factory registry |
-| `src/channels/index.ts` | Barrel imports that trigger channel self-registration |
+| `src/channels/index.ts` | Barrel imports (static and conditional) that trigger channel self-registration |
+| `src/whatsapp/channel-client/` | WhatsApp feature module (client, index, tests) |
+| `src/whatsapp/auth.ts` | WhatsApp authentication (QR code / pairing code) |
 | `src/types.ts` | `Channel` interface, `ChannelOpts`, message types |
 | `src/index.ts` | Orchestrator — instantiates channels, runs message loop |
 | `src/router.ts` | Finds the owning channel for a JID, formats messages |
@@ -227,12 +229,12 @@ Channels self-register using a barrel-import pattern:
 
 To add a new channel, contribute a skill to `.claude/skills/add-<name>/` that:
 
-1. Adds a `src/channels/<name>.ts` file implementing the `Channel` interface
+1. Adds a channel implementation (either as a feature module under `src/<name>/` or a single file in `src/channels/<name>.ts`)
 2. Calls `registerChannel(name, factory)` at module load
 3. Returns `null` from the factory if credentials are missing
-4. Adds an import line to `src/channels/index.ts`
+4. Adds an import line to `src/channels/index.ts` (conditional for feature-flagged modules, static for skill-based)
 
-See existing skills (`/add-whatsapp`, `/add-telegram`, `/add-slack`, `/add-discord`, `/add-gmail`) for the pattern.
+See existing channels (`/add-whatsapp`, `/add-telegram`, `/add-slack`, `/add-discord`, `/add-gmail`) for the pattern.
 
 ---
 
@@ -256,15 +258,20 @@ nanoclaw/
 │   ├── channels/
 │   │   ├── registry.ts            # Channel factory registry
 │   │   └── index.ts               # Barrel imports for channel self-registration
+│   ├── whatsapp/                  # WhatsApp feature module (gated by ENABLE_WHATSAPP_CHANNEL)
+│   │   ├── channel-client/
+│   │   │   ├── index.ts           # Self-registration entry point
+│   │   │   ├── client.ts          # WhatsAppChannel class
+│   │   │   └── client.test.ts     # Channel tests
+│   │   └── auth.ts                # Standalone WhatsApp authentication (QR / pairing code)
 │   ├── ipc.ts                     # IPC watcher and task processing
 │   ├── router.ts                  # Message formatting and outbound routing
-│   ├── config.ts                  # Configuration constants
+│   ├── config.ts                  # Configuration constants and feature flags
 │   ├── types.ts                   # TypeScript interfaces (includes Channel)
 │   ├── logger.ts                  # Pino logger setup
 │   ├── db.ts                      # SQLite database initialization and queries
 │   ├── group-queue.ts             # Per-group queue with global concurrency limit
 │   ├── mount-security.ts          # Mount allowlist validation for containers
-│   ├── whatsapp-auth.ts           # Standalone WhatsApp authentication
 │   ├── task-scheduler.ts          # Runs scheduled tasks when due
 │   └── container-runner.ts        # Spawns agents in containers
 │
@@ -330,8 +337,13 @@ Configuration constants are in `src/config.ts`:
 
 ```typescript
 import path from 'path';
+import { readEnvFile } from './env.js';
 
-export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || 'Andy';
+const envConfig = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER', 'ENABLE_WHATSAPP_CHANNEL']);
+
+export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
+export const ENABLE_WHATSAPP_CHANNEL =
+  (process.env.ENABLE_WHATSAPP_CHANNEL || envConfig.ENABLE_WHATSAPP_CHANNEL) === 'true';
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
@@ -724,7 +736,7 @@ All agents run inside containers (lightweight Linux VMs), providing:
 
 ### Prompt Injection Risk
 
-WhatsApp messages could contain malicious instructions attempting to manipulate Claude's behavior.
+Incoming messages from any channel could contain malicious instructions attempting to manipulate Claude's behavior.
 
 **Mitigations:**
 - Container isolation limits blast radius
