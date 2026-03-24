@@ -64,22 +64,15 @@ Messages and task operations are verified against group identity:
 | View all tasks | ✓ | Own only |
 | Manage other groups | ✓ | ✗ |
 
-### 5. Credential Isolation (Credential Proxy)
+### 5. Credential Passing
 
-Real API credentials **never enter containers**. Instead, the host runs an HTTP credential proxy that injects authentication headers transparently.
-
-**How it works:**
-1. Host starts a credential proxy on `CREDENTIAL_PROXY_PORT` (default: 3001)
-2. Containers receive `ANTHROPIC_BASE_URL=http://host.docker.internal:<port>` and `ANTHROPIC_API_KEY=placeholder`
-3. The SDK sends API requests to the proxy with the placeholder key
-4. The proxy strips placeholder auth, injects real credentials (`x-api-key` or `Authorization: Bearer`), and forwards to `api.anthropic.com`
-5. Agents cannot discover real credentials — not in environment, stdin, files, or `/proc`
+API credentials (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`) are passed directly as environment variables to agent containers at spawn time. The host reads them from `.env` / process environment and injects them via `-e` flags.
 
 **NOT Mounted:**
 - WhatsApp session (`store/auth/`) - host only
 - Mount allowlist - external, never mounted
 - Any credentials matching blocked patterns
-- `.env` is shadowed with `/dev/null` in the project root mount
+- `.env` is shadowed with `/dev/null` in the project root mount (prevents agents from reading other secrets)
 
 ## Privilege Comparison
 
@@ -107,16 +100,16 @@ Real API credentials **never enter containers**. Instead, the host runs an HTTP 
 │  • IPC authorization                                              │
 │  • Mount validation (external allowlist)                          │
 │  • Container lifecycle                                            │
-│  • Credential proxy (injects auth headers)                       │
+│  • Credential injection (env vars to containers)                 │
 └────────────────────────────────┬─────────────────────────────────┘
                                  │
-                                 ▼ Explicit mounts only, no secrets
+                                 ▼ Explicit mounts only, credentials via env vars
 ┌──────────────────────────────────────────────────────────────────┐
 │                CONTAINER (ISOLATED/SANDBOXED)                     │
 │  • Agent execution                                                │
 │  • Bash commands (sandboxed)                                      │
 │  • File operations (limited to mounts)                            │
-│  • API calls routed through credential proxy                     │
-│  • No real credentials in environment or filesystem              │
+│  • API calls use credentials from env vars                       │
+│  • .env file shadowed to prevent reading other secrets           │
 └──────────────────────────────────────────────────────────────────┘
 ```

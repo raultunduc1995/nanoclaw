@@ -481,8 +481,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Credentials are injected by the host's credential proxy via ANTHROPIC_BASE_URL.
-  // No real secrets exist in the container environment.
+  // Credentials are passed directly as env vars (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)
+  // by the host's container runner.
   const sdkEnv: Record<string, string | undefined> = { ...process.env };
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
