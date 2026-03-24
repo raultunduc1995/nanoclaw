@@ -2,6 +2,7 @@ import os from 'os';
 import path from 'path';
 
 import { readEnvFile } from './env.js';
+import { isValidTimezone } from './timezone.js';
 
 // Read config values from .env (falls back to process.env).
 const envConfig = readEnvFile([
@@ -10,6 +11,7 @@ const envConfig = readEnvFile([
   'ENABLE_WHATSAPP',
   'ENABLE_TELEGRAM',
   'ENABLE_MAC_CONTROL',
+  'TZ',
 ]);
 
 export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || "Andy";
@@ -77,7 +79,17 @@ export function getTriggerPattern(trigger?: string): RegExp {
 
 export const TRIGGER_PATTERN = buildTriggerPattern(DEFAULT_TRIGGER);
 
-// Timezone for scheduled tasks (cron expressions, etc.)
-// Uses system timezone by default
-export const TIMEZONE =
-  process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+// Timezone for scheduled tasks, message formatting, etc.
+// Validates each candidate is a real IANA identifier before accepting.
+function resolveConfigTimezone(): string {
+  const candidates = [
+    process.env.TZ,
+    envConfig.TZ,
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  ];
+  for (const tz of candidates) {
+    if (tz && isValidTimezone(tz)) return tz;
+  }
+  return 'UTC';
+}
+export const TIMEZONE = resolveConfigTimezone();
