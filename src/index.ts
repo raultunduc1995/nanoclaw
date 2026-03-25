@@ -26,7 +26,6 @@ import {
 import {
   getAllChats,
   getAllRegisteredGroups,
-  getAllSessions,
   getAllTasks,
   getMessagesSince,
   getNewMessages,
@@ -34,7 +33,6 @@ import {
   initDatabase,
   setRegisteredGroup,
   setRouterState,
-  setSession,
   storeChatMetadata,
   storeMessage,
 } from './db.js';
@@ -61,7 +59,6 @@ import { logger } from './logger.js';
 export { escapeXml, formatMessages } from './router.js';
 
 let lastTimestamp = '';
-let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
@@ -78,7 +75,6 @@ function loadState(): void {
     logger.warn('Corrupted last_agent_timestamp in DB, resetting');
     lastAgentTimestamp = {};
   }
-  sessions = getAllSessions();
   registeredGroups = getAllRegisteredGroups();
   logger.info(
     { groupCount: Object.keys(registeredGroups).length },
@@ -268,7 +264,11 @@ async function runAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
-  const sessionId = sessions[group.folder];
+
+  // Never resume sessions across container restarts to prevent token bloat.
+  // Within a single container lifetime, the SDK accumulates context naturally
+  // via IPC message piping. Across restarts, the agent relies on auto-memory,
+  // CLAUDE.md, and conversation archives for continuity.
 
   // Update tasks snapshot for container to read (filtered by group)
   const tasks = getAllTasks();
@@ -295,23 +295,11 @@ async function runAgent(
     new Set(Object.keys(registeredGroups)),
   );
 
-  // Wrap onOutput to track session ID from streamed results
-  const wrappedOnOutput = onOutput
-    ? async (output: ContainerOutput) => {
-        if (output.newSessionId) {
-          sessions[group.folder] = output.newSessionId;
-          setSession(group.folder, output.newSessionId);
-        }
-        await onOutput(output);
-      }
-    : undefined;
-
   try {
     const output = await runContainerAgent(
       group,
       {
         prompt,
-        sessionId,
         groupFolder: group.folder,
         chatJid,
         isMain,
@@ -319,13 +307,8 @@ async function runAgent(
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
-      wrappedOnOutput,
+      onOutput,
     );
-
-    if (output.newSessionId) {
-      sessions[group.folder] = output.newSessionId;
-      setSession(group.folder, output.newSessionId);
-    }
 
     if (output.status === 'error') {
       logger.error(
@@ -590,7 +573,6 @@ async function main(): Promise<void> {
   // Start subsystems (independently of connection handler)
   startSchedulerLoop({
     registeredGroups: () => registeredGroups,
-    getSessions: () => sessions,
     queue,
     onProcess: (groupJid, proc, containerName, groupFolder) =>
       queue.registerProcess(groupJid, proc, containerName, groupFolder),

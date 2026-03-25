@@ -138,7 +138,6 @@ describe('container-runner timeout behavior', () => {
     emitOutputMarker(fakeProc, {
       status: 'success',
       result: 'Here is my response',
-      newSessionId: 'session-123',
     });
 
     // Let output processing settle
@@ -155,7 +154,6 @@ describe('container-runner timeout behavior', () => {
 
     const result = await resultPromise;
     expect(result.status).toBe('success');
-    expect(result.newSessionId).toBe('session-123');
     expect(onOutput).toHaveBeenCalledWith(
       expect.objectContaining({ result: 'Here is my response' }),
     );
@@ -197,7 +195,6 @@ describe('container-runner timeout behavior', () => {
     emitOutputMarker(fakeProc, {
       status: 'success',
       result: 'Done',
-      newSessionId: 'session-456',
     });
 
     await vi.advanceTimersByTimeAsync(10);
@@ -209,6 +206,5 @@ describe('container-runner timeout behavior', () => {
 
     const result = await resultPromise;
     expect(result.status).toBe('success');
-    expect(result.newSessionId).toBe('session-456');
   });
 });

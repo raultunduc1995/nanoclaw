@@ -34,7 +34,6 @@ const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
 export interface ContainerInput {
   prompt: string;
-  sessionId?: string;
   groupFolder: string;
   chatJid: string;
   isMain: boolean;
@@ -45,7 +44,6 @@ export interface ContainerInput {
 export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
-  newSessionId?: string;
   error?: string;
 }
 
@@ -334,7 +332,6 @@ export async function runContainerAgent(
 
     // Streaming output: parse OUTPUT_START/END marker pairs as they arrive
     let parseBuffer = '';
-    let newSessionId: string | undefined;
     let outputChain = Promise.resolve();
 
     container.stdout.on('data', (data) => {
@@ -370,9 +367,6 @@ export async function runContainerAgent(
 
           try {
             const parsed: ContainerOutput = JSON.parse(jsonStr);
-            if (parsed.newSessionId) {
-              newSessionId = parsed.newSessionId;
-            }
             hadStreamingOutput = true;
             // Activity detected — reset the hard timeout
             resetTimeout();
@@ -475,7 +469,6 @@ export async function runContainerAgent(
             resolve({
               status: 'success',
               result: null,
-              newSessionId,
             });
           });
           return;
@@ -523,7 +516,6 @@ export async function runContainerAgent(
           logLines.push(
             `=== Input Summary ===`,
             `Prompt length: ${input.prompt.length} chars`,
-            `Session ID: ${input.sessionId || 'new'}`,
             ``,
           );
         }
@@ -549,7 +541,6 @@ export async function runContainerAgent(
         logLines.push(
           `=== Input Summary ===`,
           `Prompt length: ${input.prompt.length} chars`,
-          `Session ID: ${input.sessionId || 'new'}`,
           ``,
           `=== Mounts ===`,
           mounts
@@ -587,13 +578,12 @@ export async function runContainerAgent(
       if (onOutput) {
         outputChain.then(() => {
           logger.info(
-            { group: group.name, duration, newSessionId },
+            { group: group.name, duration },
             'Container completed (streaming mode)',
           );
           resolve({
             status: 'success',
             result: null,
-            newSessionId,
           });
         });
         return;
