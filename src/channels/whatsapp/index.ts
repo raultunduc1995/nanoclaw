@@ -16,16 +16,16 @@ import {
   ASSISTANT_HAS_OWN_NUMBER,
   ASSISTANT_NAME,
   STORE_DIR,
-} from '../config.js';
-import { getLastGroupSync, setLastGroupSync, updateChatName } from '../db.js';
-import { logger } from '../logger.js';
+} from '../../config.js';
+import { getLastGroupSync, setLastGroupSync, updateChatName } from '../../db.js';
+import { logger } from '../../logger.js';
 import {
   Channel,
   OnInboundMessage,
   OnChatMetadata,
   RegisteredGroup,
-} from '../types.js';
-import { registerChannel, ChannelOpts } from './registry.js';
+} from '../../types.js';
+import { registerChannel, ChannelOpts } from '../registry.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 

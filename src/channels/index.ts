@@ -14,5 +14,5 @@ import { ENABLE_WHATSAPP } from '../config.js';
 
 // whatsapp
 if (ENABLE_WHATSAPP) {
-  await import('./whatsapp.js');
+  await import('./whatsapp/index.js');
 }
