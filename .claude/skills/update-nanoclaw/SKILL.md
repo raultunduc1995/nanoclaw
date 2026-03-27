@@ -125,6 +125,21 @@ Present to the user and ask using AskUserQuestion:
 If Abort (B): skip to Step 5 (advance tag).
 If Abort without advancing (C): stop here.
 
+If Cherry-pick (A): ask the user which commits they want, then ask using AskUserQuestion:
+- **Squash** — combine all selected commits into one commit
+- **Individual** — apply each commit separately
+
+If Squash: after cherry-picking, `git reset --soft HEAD~N && git commit` with a `(squash)` prefixed summary message. Include the original commit hashes and messages in the body, e.g.:
+```
+(squash) fix: upstream nanoclaw improvements
+
+Cherry-picked from origin/main:
+- abc1234 per-group trigger patterns
+- def5678 timezone validation fix
+```
+
+Note: merge commits are automatically skipped during cherry-pick (`git log --no-merges` filters them from the preview). Only non-merge commits are presented for selection.
+
 # Step 3: Create a safety net
 
 Before any cherry-picks:
@@ -137,13 +152,12 @@ Save the tag name for rollback instructions.
 
 # Step 4: Cherry-pick
 
-Ask the user which commit hashes they want. Apply them:
+Apply the selected commits:
 ```bash
 git cherry-pick <hash1> <hash2> ...
 ```
 
-If the user wants multiple related commits squashed:
-- Cherry-pick them all, then `git reset --soft HEAD~N && git commit` with a `(squash)` prefixed message.
+If squashing was chosen, squash after all cherry-picks succeed (see Step 2 for format).
 
 If conflicts during cherry-pick:
 - Show conflicted files.
