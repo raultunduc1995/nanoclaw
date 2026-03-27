@@ -20,6 +20,7 @@ groups/global/*
 
 # Local overrides
 CLAUDE.local.md
+CLAUDE.hivemind.md
 
 # Secrets
 *.keys.json
