@@ -1,7 +1,7 @@
 /**
  * Step: register — Write channel registration config, create group folders.
  *
- * Accepts --channel to specify the messaging platform (whatsapp, telegram, slack, discord).
+ * Accepts --channel to specify the messaging platform (telegram, slack, discord).
  * Uses parameterized SQL queries to prevent injection.
  */
 import fs from 'fs';
@@ -30,7 +30,7 @@ function parseArgs(args: string[]): RegisterArgs {
     name: '',
     trigger: '',
     folder: '',
-    channel: 'whatsapp', // backward-compat: pre-refactor installs omit --channel
+    channel: 'telegram', // default channel
     requiresTrigger: true,
     isMain: false,
     assistantName: 'Andy',
@@ -93,7 +93,7 @@ export async function run(args: string[]): Promise<void> {
   logger.info(parsed, 'Registering channel');
 
   // Ensure data and store directories exist (store/ may not exist on
-  // fresh installs that skip WhatsApp auth, which normally creates it)
+  // fresh installs that may not have created it yet)
   fs.mkdirSync(path.join(projectRoot, 'data'), { recursive: true });
   fs.mkdirSync(STORE_DIR, { recursive: true });
 

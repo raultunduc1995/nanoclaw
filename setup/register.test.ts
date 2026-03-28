@@ -1,4 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import Database from 'better-sqlite3';
 
@@ -37,7 +41,7 @@ describe('parameterized SQL registration', () => {
        (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger)
        VALUES (?, ?, ?, ?, ?, NULL, ?)`,
     ).run(
-      '123@g.us',
+      'tg:group_123',
       'Test Group',
       'test-group',
       '@Andy',
@@ -47,7 +51,7 @@ describe('parameterized SQL registration', () => {
 
     const row = db
       .prepare('SELECT * FROM registered_groups WHERE jid = ?')
-      .get('123@g.us') as {
+      .get('tg:group_123') as {
       jid: string;
       name: string;
       folder: string;
@@ -55,7 +59,7 @@ describe('parameterized SQL registration', () => {
       requires_trigger: number;
     };
 
-    expect(row.jid).toBe('123@g.us');
+    expect(row.jid).toBe('tg:group_123');
     expect(row.name).toBe('Test Group');
     expect(row.folder).toBe('test-group');
     expect(row.trigger_pattern).toBe('@Andy');
@@ -70,7 +74,7 @@ describe('parameterized SQL registration', () => {
        (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger)
        VALUES (?, ?, ?, ?, ?, NULL, ?)`,
     ).run(
-      '456@g.us',
+      'tg:group_456',
       name,
       'obriens-group',
       '@Andy',
@@ -80,7 +84,7 @@ describe('parameterized SQL registration', () => {
 
     const row = db
       .prepare('SELECT name FROM registered_groups WHERE jid = ?')
-      .get('456@g.us') as {
+      .get('tg:group_456') as {
       name: string;
     };
 
@@ -116,7 +120,7 @@ describe('parameterized SQL registration', () => {
        (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger)
        VALUES (?, ?, ?, ?, ?, NULL, ?)`,
     ).run(
-      '789@s.whatsapp.net',
+      'tg:789',
       'Personal',
       'main',
       '@Andy',
@@ -126,7 +130,7 @@ describe('parameterized SQL registration', () => {
 
     const row = db
       .prepare('SELECT requires_trigger FROM registered_groups WHERE jid = ?')
-      .get('789@s.whatsapp.net') as { requires_trigger: number };
+      .get('tg:789') as { requires_trigger: number };
 
     expect(row.requires_trigger).toBe(0);
   });
@@ -137,9 +141,9 @@ describe('parameterized SQL registration', () => {
        (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
        VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
     ).run(
-      '789@s.whatsapp.net',
+      'tg:789',
       'Personal',
-      'whatsapp_main',
+      'telegram_main',
       '@Andy',
       '2024-01-01T00:00:00.000Z',
       0,
@@ -148,7 +152,7 @@ describe('parameterized SQL registration', () => {
 
     const row = db
       .prepare('SELECT is_main FROM registered_groups WHERE jid = ?')
-      .get('789@s.whatsapp.net') as { is_main: number };
+      .get('tg:789') as { is_main: number };
 
     expect(row.is_main).toBe(1);
   });
@@ -159,9 +163,9 @@ describe('parameterized SQL registration', () => {
        (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger)
        VALUES (?, ?, ?, ?, ?, NULL, ?)`,
     ).run(
-      '123@g.us',
+      'tg:group_123',
       'Some Group',
-      'whatsapp_some-group',
+      'telegram_some-group',
       '@Andy',
       '2024-01-01T00:00:00.000Z',
       1,
@@ -169,7 +173,7 @@ describe('parameterized SQL registration', () => {
 
     const row = db
       .prepare('SELECT is_main FROM registered_groups WHERE jid = ?')
-      .get('123@g.us') as { is_main: number };
+      .get('tg:group_123') as { is_main: number };
 
     expect(row.is_main).toBe(0);
   });
@@ -182,7 +186,7 @@ describe('parameterized SQL registration', () => {
     );
 
     stmt.run(
-      '123@g.us',
+      'tg:group_123',
       'Original',
       'main',
       '@Andy',
@@ -190,7 +194,7 @@ describe('parameterized SQL registration', () => {
       1,
     );
     stmt.run(
-      '123@g.us',
+      'tg:group_123',
       'Updated',
       'main',
       '@Bot',
@@ -334,19 +338,19 @@ describe('CLAUDE.md template copy', () => {
   });
 
   it('copies main template for main group', () => {
-    simulateRegister('whatsapp_main', true);
+    simulateRegister('telegram_main', true);
 
-    expect(readGroupMd('whatsapp_main')).toContain('Admin Context');
+    expect(readGroupMd('telegram_main')).toContain('Admin Context');
   });
 
   it('each channel can have its own main with admin context', () => {
-    simulateRegister('whatsapp_main', true);
+    simulateRegister('telegram_main', true);
     simulateRegister('telegram_main', true);
     simulateRegister('slack_main', true);
     simulateRegister('discord_main', true);
 
     for (const folder of [
-      'whatsapp_main',
+      'telegram_main',
       'telegram_main',
       'slack_main',
       'discord_main',
@@ -358,12 +362,12 @@ describe('CLAUDE.md template copy', () => {
   });
 
   it('non-main groups across channels get global template', () => {
-    simulateRegister('whatsapp_main', true);
+    simulateRegister('telegram_main', true);
     simulateRegister('telegram_friends', false);
     simulateRegister('slack_engineering', false);
     simulateRegister('discord_general', false);
 
-    expect(readGroupMd('whatsapp_main')).toContain('Admin Context');
+    expect(readGroupMd('telegram_main')).toContain('Admin Context');
     for (const folder of [
       'telegram_friends',
       'slack_engineering',
@@ -377,7 +381,7 @@ describe('CLAUDE.md template copy', () => {
 
   it('custom name propagates to all channels and groups', () => {
     // Register multiple channels, last one sets custom name
-    simulateRegister('whatsapp_main', true);
+    simulateRegister('telegram_main', true);
     simulateRegister('telegram_main', true);
     simulateRegister('slack_devs', false);
     // Final registration triggers name update across all
@@ -386,7 +390,7 @@ describe('CLAUDE.md template copy', () => {
     for (const folder of [
       'main',
       'global',
-      'whatsapp_main',
+      'telegram_main',
       'telegram_main',
       'slack_devs',
       'discord_main',
@@ -416,24 +420,24 @@ describe('CLAUDE.md template copy', () => {
 
   it('never overwrites when non-main becomes main (isMain changes)', () => {
     // User registers a family group as non-main
-    simulateRegister('whatsapp_casa', false);
+    simulateRegister('telegram_casa', false);
     // User extensively customizes it (PARA system, task management, etc.)
-    const mdPath = path.join(groupsDir, 'whatsapp_casa', 'CLAUDE.md');
+    const mdPath = path.join(groupsDir, 'telegram_casa', 'CLAUDE.md');
     fs.writeFileSync(
       mdPath,
       '# Casa\n\nFamily group with PARA system, task management, shopping lists.',
     );
     // Later, user promotes to main (no trigger required) — CLAUDE.md must be preserved
-    simulateRegister('whatsapp_casa', true);
+    simulateRegister('telegram_casa', true);
 
-    const content = readGroupMd('whatsapp_casa');
+    const content = readGroupMd('telegram_casa');
     expect(content).toContain('PARA system');
     expect(content).not.toContain('Admin Context');
   });
 
   it('preserves custom CLAUDE.md across channels when changing main', () => {
-    // Real-world scenario: WhatsApp main + customized Discord research channel
-    simulateRegister('whatsapp_main', true);
+    // Real-world scenario: Telegram main + customized Discord research channel
+    simulateRegister('telegram_main', true);
     simulateRegister('discord_main', false);
     const discordPath = path.join(groupsDir, 'discord_main', 'CLAUDE.md');
     fs.writeFileSync(
@@ -444,8 +448,8 @@ describe('CLAUDE.md template copy', () => {
     // Discord becomes main too — custom content must survive
     simulateRegister('discord_main', true);
     expect(readGroupMd('discord_main')).toContain('Research Assistant');
-    // WhatsApp main also untouched
-    expect(readGroupMd('whatsapp_main')).toContain('Admin Context');
+    // Telegram main also untouched
+    expect(readGroupMd('telegram_main')).toContain('Admin Context');
   });
 
   it('handles missing templates gracefully', () => {

@@ -7,8 +7,7 @@ import { isValidTimezone } from './timezone.js';
 // Read config values from .env (falls back to process.env).
 const envConfig = readEnvFile([
   'ASSISTANT_NAME',
-  'ASSISTANT_HAS_OWN_NUMBER',
-  'ENABLE_WHATSAPP',
+
   'ENABLE_TELEGRAM',
   'ENABLE_MAC_CONTROL',
   'MAX_MESSAGES_PER_PROMPT',
@@ -16,9 +15,7 @@ const envConfig = readEnvFile([
 ]);
 
 export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || "Andy";
-export const ASSISTANT_HAS_OWN_NUMBER = (process.env.ASSISTANT_HAS_OWN_NUMBER || envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
 // Feature flags - defaults to false if not set
-export const ENABLE_WHATSAPP = (process.env.ENABLE_WHATSAPP || envConfig.ENABLE_WHATSAPP) === 'true';
 export const ENABLE_TELEGRAM = (process.env.ENABLE_TELEGRAM || envConfig.ENABLE_TELEGRAM) === 'true';
 export const ENABLE_MAC_CONTROL = (process.env.ENABLE_MAC_CONTROL || envConfig.ENABLE_MAC_CONTROL) === 'true';
 
