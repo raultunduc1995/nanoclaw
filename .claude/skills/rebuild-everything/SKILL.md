@@ -51,7 +51,9 @@ find data/claude-container-config -name 'agent-runner-src' -type d -exec rm -rf 
 
 ```bash
 # macOS (launchd)
-launchctl kickstart -k gui/$(id -u)/com.nanoclaw
+launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
+launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
+launchctl kickstart -k gui/$(id -u)/com.nanoclaw # restart
 
 # Linux (systemd) — use if launchd is not available
 # systemctl --user restart nanoclaw
