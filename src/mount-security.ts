@@ -81,6 +81,20 @@ export function loadMountAllowlist(): MountAllowlist | null {
       throw new Error('allowedRoots must be an array');
     }
 
+    for (let i = 0; i < allowlist.allowedRoots.length; i++) {
+      const root = allowlist.allowedRoots[i];
+      if (typeof root === 'string') {
+        throw new Error(
+          `allowedRoots[${i}] is a string ("${root}") but must be an object: { "path": "${root}", "allowReadWrite": true }`,
+        );
+      }
+      if (!root || typeof root.path !== 'string') {
+        throw new Error(
+          `allowedRoots[${i}] is missing required "path" property`,
+        );
+      }
+    }
+
     if (!Array.isArray(allowlist.blockedPatterns)) {
       throw new Error('blockedPatterns must be an array');
     }
