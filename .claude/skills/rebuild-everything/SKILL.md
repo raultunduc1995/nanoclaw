@@ -7,6 +7,11 @@ description: Full rebuild and restart of NanoClaw — dependencies, TypeScript, 
 
 Performs a full rebuild so all code changes are reflected in running containers and the service.
 
+## Modes
+
+- **Dev mode** (`/rebuild-everything dev` or `development` or `develop`): Run steps 1–5 only. Skips service restart and verification. Use during active development when the service is not running.
+- **Full mode** (default, no argument): Run all steps 1–7. Restarts the service and verifies it's running.
+
 ## Steps
 
 Run each step sequentially. Stop on any error and report it.
