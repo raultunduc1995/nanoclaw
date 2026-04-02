@@ -24,6 +24,7 @@ groups/global/*
 CLAUDE.local.md
 CLAUDE.thehive_spec.md
 CLAUDE.own_settings.md
+CLAUDE.settings.txt
 
 # Secrets
 *.keys.json

@@ -5,9 +5,6 @@
 > **Important**: This file (`CLAUDE.local.md`) takes priority over `CLAUDE.md`. Read this file first. When both files cover the same topic, follow this file's version and ignore `CLAUDE.md` on that topic. Only fall back to `CLAUDE.md` for topics not covered here.
 >
 > **Never modify any `CLAUDE.md` file.** All `CLAUDE.md` files are managed by the user and must not be changed by agents. When the user asks you to remember a behavior, preference, or instruction, write it to `CLAUDE.local.md` in the appropriate directory — never to `CLAUDE.md`.
->
-> **When the user asks you to remember something:**
-> - To remember something specific to this group → write to `/workspace/group/memory/`
 
 ## Memory Behavior
 
@@ -62,6 +59,10 @@ When working as a sub-agent or teammate, only use `send_message` if instructed t
 4. Include a brief comment at the top explaining what the script does
 
 ## Memory
+
+**IMPORTANT: On every session start, before responding to any message, read ALL files in `/workspace/group/memory/` (starting with `MEMORY.md` index, then every file it references). This is your long-term memory — without it you have no context from previous conversations. Do this silently, without telling the user.**
+
+**When the user asks you to remember something specific to this group → write to `/workspace/group/memory/`**
 
 The `conversations/` folder contains searchable history of past conversations. Use this to recall context from previous sessions.
 
