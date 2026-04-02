@@ -305,11 +305,11 @@ server.tool(
   'register_group',
   `Register a new chat/group so the agent can respond to messages there. Main group only.
 
-Use available_groups.json to find the JID for a group. The folder name must be channel-prefixed: "{channel}_{group-name}" (e.g., "telegram_dev-team", "discord_general"). Use lowercase with hyphens for the group name part.`,
+Use available_groups.json to find the JID for a group. The folder name must be channel-prefixed: "telegram_{group-name}" (e.g., "telegram_dev-team"). Use lowercase with hyphens for the group name part.`,
   {
-    jid: z.string().describe('The chat JID (e.g., "tg:-1001234567890", "dc:1234567890123456")'),
+    jid: z.string().describe('The chat JID (e.g., "tg:-1001234567890")'),
     name: z.string().describe('Display name for the group'),
-    folder: z.string().describe('Channel-prefixed folder name (e.g., "telegram_dev-team", "discord_general")'),
+    folder: z.string().describe('Channel-prefixed folder name (e.g., "telegram_dev-team")'),
     trigger: z.string().describe('Trigger word (e.g., "@Andy")'),
   },
   async (args) => {

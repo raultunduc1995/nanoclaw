@@ -21,6 +21,7 @@ groups/global/*
 !groups/main/CLAUDE.local.md
 
 # Local overrides
+CLAUDE.md
 CLAUDE.local.md
 CLAUDE.thehive_spec.md
 CLAUDE.own_settings.md

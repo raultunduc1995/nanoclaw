@@ -49,6 +49,10 @@ You can spawn sub-agents (teammates) to work on tasks in parallel. **Never spawn
 
 When working as a sub-agent or teammate, only use `send_message` if instructed to by the main agent.
 
+## Your Workspace
+
+Files you create are saved in `/workspace/group/`. Use this for notes, research, or anything that should persist.
+
 ## Shared Scripts
 
 `/workspace/scripts/` is a shared directory visible to all agents. When you need a bash script:
@@ -142,7 +146,7 @@ This is the **main channel**, which has elevated privileges.
 
 ## Authentication
 
-Anthropic credentials must be either an API key from console.anthropic.com (`ANTHROPIC_API_KEY`) or a long-lived OAuth token from `claude setup-token` (`CLAUDE_CODE_OAUTH_TOKEN`). Short-lived tokens from the system keychain or `~/.claude/.credentials.json` expire within hours and can cause recurring container 401s. The `/setup` skill walks through this. OneCLI manages credentials (including Anthropic auth) — run `onecli --help`.
+Anthropic credentials must be either an API key from console.anthropic.com (`ANTHROPIC_API_KEY`) or a long-lived OAuth token from `claude setup-token` (`CLAUDE_CODE_OAUTH_TOKEN`). Short-lived tokens from the system keychain or `~/.claude/.credentials.json` expire within hours and can cause recurring container 401s. Credentials are stored in `.env` and passed directly to containers as environment variables.
 
 ## Container Mounts
 
@@ -170,8 +174,8 @@ Available groups are provided in `/workspace/ipc/available_groups.json`:
 {
   "groups": [
     {
-      "jid": "120363336345536173@g.us",
-      "name": "Family Chat",
+      "jid": "tg:-1001234567890",
+      "name": "Dev Team",
       "lastActivity": "2026-01-31T12:00:00.000Z",
       "isRegistered": false
     }
@@ -180,7 +184,7 @@ Available groups are provided in `/workspace/ipc/available_groups.json`:
 }
 ```
 
-Groups are ordered by most recent activity. The list is synced from WhatsApp daily.
+Groups are ordered by most recent activity. The list is synced from Telegram periodically.
 
 If a group the user mentions isn't in the list, request a fresh sync:
 
@@ -196,7 +200,7 @@ Then wait a moment and re-read `available_groups.json`.
 sqlite3 /workspace/project/store/messages.db "
   SELECT jid, name, last_message_time
   FROM chats
-  WHERE jid LIKE '%@g.us' AND jid != '__group_sync__'
+  WHERE jid LIKE 'tg:%' AND jid != '__group_sync__'
   ORDER BY last_message_time DESC
   LIMIT 10;
 "
@@ -208,18 +212,18 @@ Groups are registered in the SQLite `registered_groups` table:
 
 ```json
 {
-  "1234567890-1234567890@g.us": {
-    "name": "Family Chat",
-    "folder": "whatsapp_family-chat",
+  "tg:-1001234567890": {
+    "name": "Dev Team",
+    "folder": "telegram_dev-team",
     "trigger": "none",
     "requiresTrigger": false,
-    "added_at": "2024-01-31T12:00:00.000Z"
+    "added_at": "2026-01-31T12:00:00.000Z"
   }
 }
 ```
 
 Fields:
-- **Key**: The chat JID (unique identifier — WhatsApp, Telegram, Slack, Discord, etc.)
+- **Key**: The chat JID (unique identifier, e.g. `tg:123456789` for Telegram)
 - **name**: Display name for the group
 - **folder**: Channel-prefixed folder name under `groups/` for this group's files and memory
 - **trigger**: The trigger word (set to `"none"` when no trigger is used)
@@ -241,10 +245,7 @@ Fields:
 5. Optionally create an initial `CLAUDE.md` for the group
 
 Folder naming convention — channel prefix with underscore separator:
-- WhatsApp "Family Chat" → `whatsapp_family-chat`
 - Telegram "Dev Team" → `telegram_dev-team`
-- Discord "General" → `discord_general`
-- Slack "Engineering" → `slack_engineering`
 - Use lowercase, hyphens for the group name part
 
 #### Adding Additional Directories for a Group
@@ -253,9 +254,9 @@ Groups can have extra directories mounted. Add `containerConfig` to their entry:
 
 ```json
 {
-  "1234567890@g.us": {
+  "tg:-1001234567890": {
     "name": "Dev Team",
-    "folder": "dev-team",
+    "folder": "telegram_dev-team",
     "trigger": "none",
     "requiresTrigger": false,
     "added_at": "2026-01-31T12:00:00Z",
@@ -307,14 +308,17 @@ Notes:
 
 ### Removing a Group
 
-1. Read `/workspace/project/data/registered_groups.json`
-2. Remove the entry for that group
-3. Write the updated JSON back
-4. The group folder and its files remain (don't delete them)
+```bash
+sqlite3 /workspace/project/store/messages.db "DELETE FROM registered_groups WHERE jid = '<chat-jid>'"
+```
+
+The group folder and its files remain (don't delete them).
 
 ### Listing Groups
 
-Read `/workspace/project/data/registered_groups.json` and format it nicely.
+```bash
+sqlite3 /workspace/project/store/messages.db "SELECT jid, name, folder, is_main FROM registered_groups ORDER BY added_at"
+```
 
 ---
 
@@ -340,6 +344,6 @@ done
 ## Scheduling for Other Groups
 
 When scheduling tasks for other groups, use the `target_group_jid` parameter with the group's JID from `registered_groups.json`:
-- `schedule_task(prompt: "...", schedule_type: "cron", schedule_value: "0 9 * * 1", target_group_jid: "120363336345536173@g.us")`
+- `schedule_task(prompt: "...", schedule_type: "cron", schedule_value: "0 9 * * 1", target_group_jid: "tg:-1001234567890")`
 
-The task will run in that group's context with access to their files and memory.
+The task will run in that group's context with access to that group's files and memory.
