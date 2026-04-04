@@ -1,8 +1,6 @@
 import type Database from 'better-sqlite3';
 
-import type { Message } from '../types.js';
-
-interface MessageRow {
+export interface MessageRow {
   id: string;
   chat_jid: string;
   sender: string;
@@ -11,43 +9,43 @@ interface MessageRow {
   timestamp: string;
   is_from_me: number;
   is_bot_message: number;
-}
-
-function toMessage(row: MessageRow): Message {
-  return {
-    id: row.id,
-    chatJid: row.chat_jid,
-    sender: row.sender,
-    senderName: row.sender_name,
-    content: row.content,
-    timestamp: row.timestamp,
-    isFromMe: row.is_from_me === 1,
-    isBotMessage: row.is_bot_message === 1,
-  };
+  reply_to_message_id: string | null;
+  reply_to_message_content: string | null;
+  reply_to_sender_name: string | null;
 }
 
 export interface MessagesLocalResource {
-  store(msg: Message): void;
-  getNew(jids: string[], lastTimestamp: string, botPrefix: string, limit?: number): { messages: Message[]; newTimestamp: string };
-  getSince(chatJid: string, sinceTimestamp: string, botPrefix: string, limit?: number): Message[];
+  store(msg: MessageRow): void;
+  getNew(jids: string[], lastTimestamp: string, botPrefix: string, limit?: number): MessageRow[];
+  getSince(chatJid: string, sinceTimestamp: string, botPrefix: string, limit?: number): MessageRow[];
   getLastBotTimestamp(chatJid: string, botPrefix: string): string | undefined;
 }
 
 export const createMessagesLocalResource = (db: Database.Database): MessagesLocalResource => ({
-  store: (msg: Message) => {
+  store: (msg) => {
     db.prepare(
-      `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(msg.id, msg.chatJid, msg.sender, msg.senderName, msg.content, msg.timestamp, msg.isFromMe ? 1 : 0, msg.isBotMessage ? 1 : 0);
+      `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, reply_to_message_id, reply_to_message_content, reply_to_sender_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      msg.id,
+      msg.chat_jid,
+      msg.sender,
+      msg.sender_name,
+      msg.content,
+      msg.timestamp,
+      msg.is_from_me,
+      msg.is_bot_message,
+      msg.reply_to_message_id,
+      msg.reply_to_message_content,
+      msg.reply_to_sender_name,
+    );
   },
 
-  getNew: (jids: string[], lastTimestamp: string, botPrefix: string, limit: number = 200): { messages: Message[]; newTimestamp: string } => {
-    if (jids.length === 0) return { messages: [], newTimestamp: lastTimestamp };
-
+  getNew: (jids, lastTimestamp, botPrefix, limit = 200) => {
     const placeholders = jids.map(() => '?').join(',');
     const sql = `
         SELECT * FROM (
-          SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message
+          SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, reply_to_message_id, reply_to_message_content, reply_to_sender_name
           FROM messages
           WHERE timestamp > ? AND chat_jid IN (${placeholders})
             AND is_bot_message = 0 AND content NOT LIKE ?
@@ -57,20 +55,13 @@ export const createMessagesLocalResource = (db: Database.Database): MessagesLoca
         ) ORDER BY timestamp
       `;
 
-    const rows = db.prepare(sql).all(lastTimestamp, ...jids, `${botPrefix}:%`, limit) as MessageRow[];
-
-    let newTimestamp = lastTimestamp;
-    for (const row of rows) {
-      if (row.timestamp > newTimestamp) newTimestamp = row.timestamp;
-    }
-
-    return { messages: rows.map(toMessage), newTimestamp };
+    return db.prepare(sql).all(lastTimestamp, ...jids, `${botPrefix}:%`, limit) as MessageRow[];
   },
 
-  getSince: (chatJid: string, sinceTimestamp: string, botPrefix: string, limit: number = 200): Message[] => {
+  getSince: (chatJid, sinceTimestamp, botPrefix, limit = 200) => {
     const sql = `
         SELECT * FROM (
-          SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message
+          SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, reply_to_message_id, reply_to_message_content, reply_to_sender_name
           FROM messages
           WHERE chat_jid = ? AND timestamp > ?
             AND is_bot_message = 0 AND content NOT LIKE ?
@@ -79,17 +70,15 @@ export const createMessagesLocalResource = (db: Database.Database): MessagesLoca
           LIMIT ?
         ) ORDER BY timestamp
       `;
-    const rows = db.prepare(sql).all(chatJid, sinceTimestamp, `${botPrefix}:%`, limit) as MessageRow[];
-    return rows.map(toMessage);
+
+    return db.prepare(sql).all(chatJid, sinceTimestamp, `${botPrefix}:%`, limit) as MessageRow[];
   },
 
-  getLastBotTimestamp: (chatJid: string, botPrefix: string): string | undefined => {
-    const row = db
-      .prepare(
-        `SELECT MAX(timestamp) as ts FROM messages
-           WHERE chat_jid = ? AND (is_bot_message = 1 OR content LIKE ?)`,
-      )
-      .get(chatJid, `${botPrefix}:%`) as { ts: string | null } | undefined;
+  getLastBotTimestamp: (chatJid, botPrefix) => {
+    const row = db.prepare(`SELECT MAX(timestamp) as ts FROM messages WHERE chat_jid = ? AND (is_bot_message = 1 OR content LIKE ?)`).get(chatJid, `${botPrefix}:%`) as
+      | { ts: string | null }
+      | undefined;
+
     return row?.ts ?? undefined;
   },
 });

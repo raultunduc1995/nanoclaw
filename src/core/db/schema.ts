@@ -19,6 +19,9 @@ export const createSchema = (database: Database.Database): void => {
       timestamp TEXT,
       is_from_me INTEGER,
       is_bot_message INTEGER DEFAULT 0,
+      reply_to_message_id TEXT,
+      reply_to_message_content TEXT,
+      reply_to_sender_name TEXT,
       PRIMARY KEY (id, chat_jid),
       FOREIGN KEY (chat_jid) REFERENCES chats(jid)
     );
