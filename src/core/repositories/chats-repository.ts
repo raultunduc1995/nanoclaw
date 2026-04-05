@@ -50,7 +50,7 @@ export const createChatsRepository = (resource: ChatsLocalResource, groupsReposi
       const registeredJids = groupsRepository.getRegisteredGroupsJids();
 
       return chats
-        .filter((c) => c.jid !== '__group_sync__' && c.is_group === 1)
+        .filter((c) => c.is_group === 1)
         .map((c) => ({
           jid: c.jid,
           name: c.name,

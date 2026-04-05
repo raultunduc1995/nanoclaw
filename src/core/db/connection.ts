@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 
 import { STORE_DIR } from '../../config.js';
+import { logger } from '../../logger.js';
+
 import { createSchema } from './schema.js';
 import { createChatsLocalResource } from './resources/chats.js';
 import { createMessagesLocalResource } from './resources/messages.js';
@@ -44,6 +46,7 @@ export function initLocalDatabase(): LocalResource {
   const dbPath = path.join(STORE_DIR, 'messages.db');
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   instance = createLocalResource(new Database(dbPath));
+  logger.info(`Database was initialized successfuly`);
   return instance;
 }
 

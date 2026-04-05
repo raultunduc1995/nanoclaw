@@ -4,10 +4,32 @@ import path from 'path';
 import { DATA_DIR, IPC_POLL_INTERVAL } from '../../config.js';
 import { logger } from '../../logger.js';
 import { ipcTaskSchema, ipcMessageSchema, type IpcTaskData, type IpcMessageData } from './types.js';
-import { sendMessageToChatChannel, syncGroupsOnAllSyncableChannels } from '../../channels/registry.js';
-import { writeGroupsSnapshot } from '../../container-runner.js';
-import type { ChatsRepository, GroupsRepository, NewScheduledTask, RegisteredGroup, ScheduledTask, TasksRepository } from '../repositories/index.js';
+import type { AvailableGroup, NewScheduledTask, RegisteredGroup, ScheduledTask } from '../repositories/index.js';
 import { computeNextRun } from '../repositories/index.js';
+
+export interface IpcHandlerDeps {
+  groupsDeps: {
+    getById: (jid: string) => RegisteredGroup | undefined;
+    register: (jid: string, group: RegisteredGroup) => void;
+    getRegisteredGroups: () => Record<string, RegisteredGroup>;
+  };
+  tasksDeps: {
+    save: (task: NewScheduledTask) => void;
+    getById: (id: string) => ScheduledTask | undefined;
+    update: (task: ScheduledTask) => void;
+    delete: (id: string) => void;
+  };
+  chatsDeps: {
+    getAvailableChatGroups: () => AvailableGroup[];
+  };
+  channelRegistryDeps: {
+    sendMessageTo: (jid: string, message: string) => Promise<void>; // sendMessageToChatChannel
+    forceChannelsSync: () => Promise<void>; // syncGroupsOnAllSyncableChannels({ force: true })
+  };
+  containerRunnerDeps: {
+    writeAvailableGroupsIn: ({ groupFolder, groups, isMain }: { groupFolder: string; groups: AvailableGroup[]; isMain: boolean }) => void; // writeGroupsSnapshot({ groupFolder, groups, isMain })
+  };
+}
 
 export interface IpcHandler {
   start: () => void;
@@ -15,14 +37,14 @@ export interface IpcHandler {
   processMessage: (data: IpcMessageData, { groupFolder, isMain }: { groupFolder: string; isMain: boolean }) => Promise<void>;
 }
 
-export const createIpcHandler = (groupsRepository: GroupsRepository, chatsRepository: ChatsRepository, tasksRepository: TasksRepository): IpcHandler => {
-  const messagesIpcHandler = createMessagesIpcHandler(groupsRepository);
-  const tasksIpcHandler = createTasksIpcHandler(tasksRepository, groupsRepository, chatsRepository);
+export const createIpcHandler = ({ groupsDeps, tasksDeps, chatsDeps, channelRegistryDeps, containerRunnerDeps }: IpcHandlerDeps): IpcHandler => {
+  const messagesIpcHandler = createMessagesIpcHandler(groupsDeps, channelRegistryDeps);
+  const tasksIpcHandler = createTasksIpcHandler(groupsDeps, tasksDeps, chatsDeps, channelRegistryDeps, containerRunnerDeps);
   let running = false;
 
   const processIpcFiles = async () => {
     const groupsFolders = getIpcGroupsFolders();
-    const registeredGroups = groupsRepository.getRegisteredGroupsRecord();
+    const registeredGroups = groupsDeps.getRegisteredGroups();
     const mainGroupFolder = Object.values(registeredGroups).find((group) => group.isMain)?.folder;
 
     for (const groupFolder of groupsFolders) {
@@ -56,18 +78,23 @@ export const createIpcHandler = (groupsRepository: GroupsRepository, chatsReposi
 };
 
 const createMessagesIpcHandler = (
-  groupsRepository: GroupsRepository,
+  groupsDeps: {
+    getRegisteredGroups: () => Record<string, RegisteredGroup>;
+  },
+  channelRegistryDeps: {
+    sendMessageTo: (jid: string, message: string) => Promise<void>;
+  },
 ): {
   processMessages: (groupFolder: string, isMain: boolean) => Promise<void>;
   processMessage: (data: IpcMessageData, { groupFolder, isMain }: { groupFolder: string; isMain: boolean }) => Promise<void>;
 } => {
   const processMessage = async (data: IpcMessageData, { groupFolder, isMain }: { groupFolder: string; isMain: boolean }) => {
-    const registeredGroups = groupsRepository.getRegisteredGroupsRecord();
+    const registeredGroups = groupsDeps.getRegisteredGroups();
     const { chatJid, text } = data;
     const targetGroup = registeredGroups[chatJid];
 
     if (isMain || (targetGroup && targetGroup.folder === groupFolder)) {
-      await sendMessageToChatChannel(chatJid, text);
+      await channelRegistryDeps.sendMessageTo(chatJid, text);
       logger.info({ chatJid, groupFolder }, 'IPC message sent');
     } else {
       logger.warn({ chatJid, groupFolder }, 'Unauthorized IPC message attempt blocked');
@@ -105,9 +132,25 @@ const createMessagesIpcHandler = (
 };
 
 const createTasksIpcHandler = (
-  tasksRepository: TasksRepository,
-  groupsRepository: GroupsRepository,
-  chatsRepository: ChatsRepository,
+  groupsDeps: {
+    getById: (jid: string) => RegisteredGroup | undefined;
+    register: (jid: string, group: RegisteredGroup) => void;
+  },
+  tasksDeps: {
+    save: (task: NewScheduledTask) => void;
+    getById: (id: string) => ScheduledTask | undefined;
+    update: (task: ScheduledTask) => void;
+    delete: (id: string) => void;
+  },
+  chatsDeps: {
+    getAvailableChatGroups: () => AvailableGroup[];
+  },
+  channelRegistryDeps: {
+    forceChannelsSync: () => Promise<void>;
+  },
+  containerRunnerDeps: {
+    writeAvailableGroupsIn: ({ groupFolder, groups, isMain }: { groupFolder: string; groups: AvailableGroup[]; isMain: boolean }) => void;
+  },
 ): {
   processTasks: (groupFolder: string, isMain: boolean) => Promise<void>;
   processTaskCommand: (taskData: IpcTaskData, { groupFolder, isMain }: { groupFolder: string; isMain: boolean }) => Promise<void>;
@@ -115,7 +158,7 @@ const createTasksIpcHandler = (
   // --- Task command handlers ---
 
   const handleScheduleTask = (taskData: Extract<IpcTaskData, { type: 'schedule_task' }>, { groupFolder, isMain }: { groupFolder: string; isMain: boolean }) => {
-    const targetGroup = groupsRepository.getBy(taskData.targetJid);
+    const targetGroup = groupsDeps.getById(taskData.targetJid);
     if (!targetGroup) {
       logger.warn({ targetJid: taskData.targetJid }, 'Cannot schedule task: target group not registered');
       return;
@@ -126,7 +169,7 @@ const createTasksIpcHandler = (
     }
 
     const task = fromIpcScheduleTaskToNewScheduledTask(taskData, targetGroup.folder);
-    tasksRepository.saveTask(task);
+    tasksDeps.save(task);
     logger.info({ taskId: task.id, groupFolder, targetFolder: targetGroup.folder, contextMode: task.contextMode }, 'Task created via IPC');
   };
 
@@ -134,7 +177,7 @@ const createTasksIpcHandler = (
     taskData: Extract<IpcTaskData, { type: 'pause_task' }> | Extract<IpcTaskData, { type: 'resume_task' }>,
     { groupFolder, isMain, newStatus, action }: { groupFolder: string; isMain: boolean; newStatus: 'active' | 'paused'; action: string },
   ) => {
-    let task = tasksRepository.getTaskById(taskData.taskId);
+    let task = tasksDeps.getById(taskData.taskId);
     if (!task) {
       logger.warn({ taskId: taskData.taskId }, `Cannot ${action} task: not found`);
       return;
@@ -148,12 +191,12 @@ const createTasksIpcHandler = (
       ...task,
       status: newStatus,
     };
-    tasksRepository.updateTask(task);
+    tasksDeps.update(task);
     logger.info({ taskId: taskData.taskId, groupFolder }, `Task ${action} via IPC`);
   };
 
   const handleCancelTask = (taskData: Extract<IpcTaskData, { type: 'cancel_task' }>, { groupFolder, isMain }: { groupFolder: string; isMain: boolean }) => {
-    const task = tasksRepository.getTaskById(taskData.taskId);
+    const task = tasksDeps.getById(taskData.taskId);
     if (!task) {
       logger.warn({ taskId: taskData.taskId }, 'Cannot cancel task: not found');
       return;
@@ -163,12 +206,12 @@ const createTasksIpcHandler = (
       return;
     }
 
-    tasksRepository.deleteTask(taskData.taskId);
+    tasksDeps.delete(taskData.taskId);
     logger.info({ taskId: taskData.taskId, groupFolder }, 'Task cancelled via IPC');
   };
 
   const handleUpdateTask = (taskData: Extract<IpcTaskData, { type: 'update_task' }>, { groupFolder, isMain }: { groupFolder: string; isMain: boolean }) => {
-    const existingTask = tasksRepository.getTaskById(taskData.taskId);
+    const existingTask = tasksDeps.getById(taskData.taskId);
     if (!existingTask) {
       logger.warn({ taskId: taskData.taskId, groupFolder }, 'Task not found for update');
       return;
@@ -179,18 +222,18 @@ const createTasksIpcHandler = (
     }
 
     const updatedTask = fromIpcUpdateTaskToScheduledTask(taskData, existingTask);
-    tasksRepository.updateTask(updatedTask);
+    tasksDeps.update(updatedTask);
     logger.info({ taskId: taskData.taskId, groupFolder }, 'Task updated via IPC');
   };
 
-  const handleRefreshGroups = async (groupFolder: string) => {
+  const handleRefreshGroups = async (groupFolder: string, isMain: boolean) => {
     logger.info({ groupFolder }, 'Group metadata refresh requested via IPC');
-    await syncGroupsOnAllSyncableChannels({ force: true });
-    writeGroupsSnapshot({ groupFolder: groupFolder, groups: chatsRepository.getAvailableGroups() });
+    await channelRegistryDeps.forceChannelsSync();
+    containerRunnerDeps.writeAvailableGroupsIn({ groupFolder, groups: chatsDeps.getAvailableChatGroups(), isMain });
   };
 
   const handleRegisterGroup = (taskData: Extract<IpcTaskData, { type: 'register_group' }>) => {
-    groupsRepository.registerGroup(taskData.jid, fromIpcRegisterGroupToRegisteredGroup(taskData));
+    groupsDeps.register(taskData.jid, fromIpcRegisterGroupToRegisteredGroup(taskData));
   };
 
   // --- Command router ---
@@ -214,7 +257,7 @@ const createTasksIpcHandler = (
         break;
       case 'refresh_groups':
         if (isMain) {
-          await handleRefreshGroups(groupFolder);
+          await handleRefreshGroups(groupFolder, true);
         } else {
           logger.warn({ groupFolder }, 'Unauthorized refresh_groups attempt blocked');
         }

@@ -3,7 +3,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { writeTasksSnapshot } from '../../container-runner.js';
 import { logger } from '../../logger.js';
 import type { TasksLocalResource, TaskRow, TaskRunLogRow } from '../db/index.js';
-import type { GroupsRepository } from './groups-repository.js';
+import type { GroupsRepository, RegisteredGroup } from './groups-repository.js';
 import { TIMEZONE } from '../../config.js';
 
 // --- Types and interfaces ---
@@ -48,6 +48,7 @@ export interface TasksRepository {
   deleteTask: (id: string) => void;
   getAllDueScheduledTasks: () => ScheduledTask[];
   updateAfterRun: (id: string, lastResult: string, nextRun?: string) => void;
+  writeTasksSnapshotFor: (group: RegisteredGroup) => void;
   saveTaskRunLog: (log: TaskRunLog) => void;
 }
 
@@ -112,6 +113,24 @@ export const createTasksRepository = (resource: TasksLocalResource, groupsReposi
     getAllDueScheduledTasks: () => resource.getDue().map(toScheduledTask),
 
     updateAfterRun: (id, lastResult, nextRun = undefined) => resource.updateAfterRun(id, nextRun ?? null, lastResult),
+
+    writeTasksSnapshotFor: (group) => {
+      const tasks = resource.getAll();
+      writeTasksSnapshot(
+        group.folder,
+        group.isMain,
+        tasks.map((t) => ({
+          id: t.id,
+          groupFolder: t.group_folder,
+          prompt: t.prompt,
+          script: t.script ?? undefined,
+          schedule_type: t.schedule_type,
+          schedule_value: t.schedule_value,
+          status: t.status,
+          next_run: t.next_run,
+        })),
+      );
+    },
 
     saveTaskRunLog: (log) => resource.logRun(toTaskRunLogRow(log)),
   };
