@@ -92,14 +92,14 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
   // Create group folder
   fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
 
-  // Copy global CLAUDE.local.md into non-main group folders so agents have
-  // shared instructions from the first run. Main has its own CLAUDE.local.md.
+  // Copy global CLAUDE.md into non-main group folders so agents have
+  // shared instructions from the first run. Main has its own CLAUDE.md.
   if (!group.isMain) {
-    const globalLocalMd = path.join(GROUPS_DIR, 'global', 'CLAUDE.local.md');
-    const groupLocalMd = path.join(groupDir, 'CLAUDE.local.md');
-    if (fs.existsSync(globalLocalMd)) {
-      fs.copyFileSync(globalLocalMd, groupLocalMd);
-      logger.info({ folder: group.folder }, 'Copied global CLAUDE.local.md to group');
+    const globalMd = path.join(GROUPS_DIR, 'global', 'CLAUDE.md');
+    const groupMd = path.join(groupDir, 'CLAUDE.md');
+    if (fs.existsSync(globalMd)) {
+      fs.copyFileSync(globalMd, groupMd);
+      logger.info({ folder: group.folder }, 'Copied global CLAUDE.md to group');
     }
   }
 
