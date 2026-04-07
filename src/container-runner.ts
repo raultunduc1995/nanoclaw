@@ -140,7 +140,7 @@ function buildVolumeMounts(group: RegisteredGroup, isMain: boolean): VolumeMount
             CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
             // Enable Claude's memory feature (persists user preferences)
             // https://code.claude.com/docs/en/memory#manage-auto-memory
-            CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
+            CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
           },
         },
         null,
