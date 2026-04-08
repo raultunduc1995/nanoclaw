@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 
+import { logger } from '../logger.js';
 import { cleanupOrphans, ensureContainerRuntimeRunning } from '../container-runtime.js';
-import { Message, resolveGroupFolderPath, resolveGroupIpcPath } from './repositories/index.js';
+import { type Message, resolveGroupIpcPath } from './repositories/index.js';
 import channelsRegistry, { createTelegramChannelOpts, type TelegramChannelOpts } from './channels/index.js';
 import { initLocalDatabase } from './db/index.js';
 import { createIpcHandler, type IpcHandler } from './ipc/index.js';
@@ -22,7 +23,8 @@ import {
   type RegisteredGroup,
   type ScheduledTask,
 } from './repositories/index.js';
-import { logger } from '../logger.js';
+import { createMessageFlow, type MessageFlow, type MessageFlowDeps } from './flows/MessageFlow.js';
+import { GroupQueue } from '../group-queue.js';
 
 let groupsRepo: GroupsRepository;
 let chatsRepo: ChatsRepository;
@@ -30,6 +32,8 @@ let messagesRepo: MessagesRepository;
 let routerStateRepo: RouterStateRepository;
 let tasksRepo: TasksRepository;
 let ipcHandler: IpcHandler;
+let messageFlow: MessageFlow;
+let groupQueue: GroupQueue;
 
 const initRepos = () => {
   const localResource = initLocalDatabase();
@@ -71,7 +75,7 @@ const initIpcHandler = () => {
     fs.writeFileSync(tasksFile, JSON.stringify(filteredTasks, null, 2));
   };
   const onTasksChanged = () => {
-    const tasks = tasksRepo.getAllTasks();
+    const tasks = tasksRepo.getAll();
     const taskRows = tasks.map((t) => ({
       id: t.id,
       groupFolder: t.groupFolder,
@@ -82,7 +86,7 @@ const initIpcHandler = () => {
       status: t.status,
       next_run: t.nextRun,
     }));
-    const registeredGroups = groupsRepo.getRegisteredGroupsRecord();
+    const registeredGroups = groupsRepo.getAllAsRecord();
     for (const group of Object.values(registeredGroups)) {
       writeTasksSnapshot({
         folder: group.folder,
@@ -114,8 +118,8 @@ const initIpcHandler = () => {
   // --------------------------------------
 
   const getAvailableChatGroups = () => {
-    const chats = chatsRepo.getAvailableGroupChats();
-    const registeredJids = groupsRepo.getRegisteredGroupsJids();
+    const chats = chatsRepo.getGroupChats();
+    const registeredJids = groupsRepo.getAllJids();
 
     return chats.map((c) => ({
       jid: c.jid,
@@ -133,22 +137,22 @@ const initIpcHandler = () => {
 
   ipcHandler = createIpcHandler({
     groupsDeps: {
-      getById: (jid) => groupsRepo.getBy(jid),
-      register: (jid, group) => groupsRepo.registerGroup(jid, group),
-      getRegisteredGroups: () => groupsRepo.getRegisteredGroupsRecord(),
+      getById: (jid) => groupsRepo.getByJid(jid),
+      register: (jid, group) => groupsRepo.register(jid, group),
+      getRegisteredGroups: () => groupsRepo.getAllAsRecord(),
     },
     tasksDeps: {
       save: (task) => {
-        tasksRepo.saveTask(task);
+        tasksRepo.save(task);
         onTasksChanged();
       },
-      getById: (id) => tasksRepo.getTaskById(id),
+      getById: (id) => tasksRepo.getById(id),
       update: (task) => {
-        tasksRepo.updateTask(task);
+        tasksRepo.update(task);
         onTasksChanged();
       },
       delete: (id) => {
-        tasksRepo.deleteTask(id);
+        tasksRepo.delete(id);
         onTasksChanged();
       },
     },
@@ -164,12 +168,23 @@ const initIpcHandler = () => {
   });
 };
 
+const initMessageFlow = () => {
+  messageFlow = createMessageFlow({
+    getRouterState: () => routerStateRepo.get(),
+    getRegisteredGroups: () => groupsRepo.getAllAsRecord(),
+    getRegisteredGroupsJids: () => groupsRepo.getAllJids(),
+    enqueueMessageCheck: (jid) => groupQueue.enqueueMessageCheck(jid),
+  });
+}
+
 const initMain = () => {
   ensureContainerRuntimeRunning();
   cleanupOrphans();
 
   initRepos();
   initIpcHandler();
+  groupQueue = new GroupQueue();
+  initMessageFlow();
 };
 
 const registerCleanupHandlers = () => {
@@ -187,17 +202,16 @@ const registerCleanupHandlers = () => {
 const registerChannels = async () => {
   const telegramOps: TelegramChannelOpts = createTelegramChannelOpts({
     type: 'telegram',
-    onInboundMessage: (message) => messagesRepo.saveMessage(message),
-    onChatMetadata: (chatJid, timestamp, name?, channel?, isGroup?) => {
-      chatsRepo.storeMetadata(chatJid, {
+    onInboundMessage: (message) => messagesRepo.save(message),
+    onChatMetadata: (chatJid, timestamp, name, isGroup) => {
+      chatsRepo.saveChat(chatJid, {
         timestamp,
         name,
-        channel,
+        channel: 'telegram',
         isGroup,
       });
     },
-    getRegisteredGroups: () => groupsRepo.getRegisteredGroupsRecord(),
-    resolveGroupFolderPath: (folder) => resolveGroupFolderPath(folder),
+    getRegisteredGroups: () => groupsRepo.getAllAsRecord(),
   });
 
   channelsRegistry.registerTelegramChannel(telegramOps);
@@ -209,4 +223,5 @@ export const main = async () => {
   registerCleanupHandlers();
   await registerChannels();
   ipcHandler.start();
+  messageFlow.startMessagesWatcher();
 };

@@ -20,31 +20,27 @@ export interface AvailableGroup {
 // --- Repository interface and implementation ---
 
 export interface ChatsRepository {
-  storeMetadata: (chatJid: string, metadata: { timestamp: string; name?: string; channel?: string; isGroup?: boolean }) => void;
-  update: (chatInfo: ChatInfo) => void;
-  getAll: () => ChatInfo[];
-  getAvailableGroupChats: () => ChatInfo[];
+  saveChat: (chatJid: string, metadata: { timestamp: string; name: string; channel: string; isGroup: boolean }) => void;
+  updateChatName: (chatInfo: ChatInfo) => void;
+  getAllChats: () => ChatInfo[];
+  getGroupChats: () => ChatInfo[];
 }
 
 export const createChatsRepository = (resource: ChatsLocalResource): ChatsRepository => {
   return {
-    storeMetadata: (chatJid, metadata) => {
-      if (metadata.name) {
-        resource.storeNamedMetadata(chatJid, { timestamp: metadata.timestamp, name: metadata.name, channel: metadata.channel, isGroup: metadata.isGroup });
-      } else {
-        resource.storeMetadata(chatJid, { timestamp: metadata.timestamp, channel: metadata.channel, isGroup: metadata.isGroup });
-      }
+    saveChat: (chatJid, metadata) => {
+      resource.upsert(chatJid, { timestamp: metadata.timestamp, name: metadata.name, channel: metadata.channel, isGroup: metadata.isGroup });
     },
 
-    update: (chatInfo) => {
+    updateChatName: (chatInfo) => {
       resource.updateName(chatInfo.jid, chatInfo.name);
     },
 
-    getAll: () => {
+    getAllChats: () => {
       return resource.getAll().map(toChatInfo);
     },
 
-    getAvailableGroupChats: () =>
+    getGroupChats: () =>
       resource
         .getAll()
         .filter((chat) => chat.is_group === 1)

@@ -12,65 +12,43 @@ beforeEach(() => {
   chats = db.chats;
 });
 
-describe('storeMetadata', () => {
-  it('uses JID as default name', () => {
-    chats.storeMetadata('tg:100', { timestamp: '2024-01-01T00:00:00.000Z' });
+describe('storeNamedMetadata', () => {
+  it('stores chat with all fields', () => {
+    chats.upsert('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', name: 'Dev Team', channel: 'telegram', isGroup: true });
     const rows = chats.getAll();
     expect(rows).toHaveLength(1);
     expect(rows[0].jid).toBe('tg:100');
-    expect(rows[0].name).toBe('tg:100');
+    expect(rows[0].name).toBe('Dev Team');
+    expect(rows[0].channel).toBe('telegram');
+    expect(rows[0].is_group).toBe(1);
   });
 
-  it('preserves existing name when called without name', () => {
-    chats.storeNamedMetadata('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', name: 'Original' });
-    chats.storeMetadata('tg:100', { timestamp: '2024-01-01T00:00:01.000Z' });
-    expect(chats.getAll()[0].name).toBe('Original');
+  it('updates name on subsequent call', () => {
+    chats.upsert('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', name: 'Old', channel: 'telegram', isGroup: true });
+    chats.upsert('tg:100', { timestamp: '2024-01-01T00:00:01.000Z', name: 'New', channel: 'telegram', isGroup: true });
+    expect(chats.getAll()[0].name).toBe('New');
   });
 
   it('preserves newer timestamp on conflict', () => {
-    chats.storeMetadata('tg:100', { timestamp: '2024-01-01T00:00:05.000Z' });
-    chats.storeMetadata('tg:100', { timestamp: '2024-01-01T00:00:01.000Z' });
+    chats.upsert('tg:100', { timestamp: '2024-01-01T00:00:05.000Z', name: 'Chat', channel: 'telegram', isGroup: false });
+    chats.upsert('tg:100', { timestamp: '2024-01-01T00:00:01.000Z', name: 'Chat', channel: 'telegram', isGroup: false });
     expect(chats.getAll()[0].last_message_time).toBe('2024-01-01T00:00:05.000Z');
   });
 
-  it('stores channel field', () => {
-    chats.storeMetadata('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', channel: 'telegram' });
-    expect(chats.getAll()[0].channel).toBe('telegram');
-  });
-
   it('stores is_group as 1 for groups', () => {
-    chats.storeMetadata('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', isGroup: true });
+    chats.upsert('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', name: 'Group', channel: 'telegram', isGroup: true });
     expect(chats.getAll()[0].is_group).toBe(1);
   });
 
   it('stores is_group as 0 for non-groups', () => {
-    chats.storeMetadata('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', isGroup: false });
+    chats.upsert('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', name: 'DM', channel: 'telegram', isGroup: false });
     expect(chats.getAll()[0].is_group).toBe(0);
-  });
-
-  it('preserves existing channel on update without channel', () => {
-    chats.storeMetadata('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', channel: 'telegram' });
-    chats.storeMetadata('tg:100', { timestamp: '2024-01-01T00:00:01.000Z' });
-    expect(chats.getAll()[0].channel).toBe('telegram');
-  });
-});
-
-describe('storeNamedMetadata', () => {
-  it('stores with explicit name', () => {
-    chats.storeNamedMetadata('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', name: 'Dev Team' });
-    expect(chats.getAll()[0].name).toBe('Dev Team');
-  });
-
-  it('updates name on subsequent call', () => {
-    chats.storeNamedMetadata('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', name: 'Old' });
-    chats.storeNamedMetadata('tg:100', { timestamp: '2024-01-01T00:00:01.000Z', name: 'New' });
-    expect(chats.getAll()[0].name).toBe('New');
   });
 });
 
 describe('updateName', () => {
   it('updates name of existing chat', () => {
-    chats.storeMetadata('tg:100', { timestamp: '2024-01-01T00:00:00.000Z' });
+    chats.upsert('tg:100', { timestamp: '2024-01-01T00:00:00.000Z', name: 'Old', channel: 'telegram', isGroup: false });
     chats.updateName('tg:100', 'Renamed');
     expect(chats.getAll()[0].name).toBe('Renamed');
   });
@@ -89,8 +67,8 @@ describe('getAll', () => {
   });
 
   it('returns rows ordered by last_message_time descending', () => {
-    chats.storeMetadata('tg:old', { timestamp: '2024-01-01T00:00:00.000Z' });
-    chats.storeMetadata('tg:new', { timestamp: '2024-01-02T00:00:00.000Z' });
+    chats.upsert('tg:old', { timestamp: '2024-01-01T00:00:00.000Z', name: 'Old', channel: 'telegram', isGroup: false });
+    chats.upsert('tg:new', { timestamp: '2024-01-02T00:00:00.000Z', name: 'New', channel: 'telegram', isGroup: false });
     const rows = chats.getAll();
     expect(rows[0].jid).toBe('tg:new');
     expect(rows[1].jid).toBe('tg:old');

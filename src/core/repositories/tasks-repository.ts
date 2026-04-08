@@ -38,19 +38,19 @@ export interface TaskRunLog {
 // --- Repository interface and implementation ---
 
 export interface TasksRepository {
-  saveTask: (task: NewScheduledTask) => void;
-  getTaskById: (id: string) => ScheduledTask | undefined;
-  getAllTasksForGroup: (groupFolder: string) => ScheduledTask[];
-  getAllTasks: () => ScheduledTask[];
-  updateTask: (task: ScheduledTask) => void;
-  deleteTask: (id: string) => void;
-  getAllDueScheduledTasks: () => ScheduledTask[];
+  save: (task: NewScheduledTask) => void;
+  getById: (id: string) => ScheduledTask | undefined;
+  getByGroup: (groupFolder: string) => ScheduledTask[];
+  getAll: () => ScheduledTask[];
+  update: (task: ScheduledTask) => void;
+  delete: (id: string) => void;
+  getDue: () => ScheduledTask[];
   updateAfterRun: (id: string, lastResult: string, nextRun?: string) => void;
-  saveTaskRunLog: (log: TaskRunLog) => void;
+  saveRunLog: (log: TaskRunLog) => void;
 }
 
 export const createTasksRepository = (resource: TasksLocalResource): TasksRepository => ({
-  saveTask: (task) => {
+  save: (task) => {
     resource.create({
       id: task.id,
       group_folder: task.groupFolder,
@@ -68,28 +68,28 @@ export const createTasksRepository = (resource: TasksLocalResource): TasksReposi
     });
   },
 
-  getTaskById: (id) => {
+  getById: (id) => {
     const row = resource.getById(id);
     return row ? toScheduledTask(row) : undefined;
   },
 
-  getAllTasksForGroup: (groupFolder) => resource.getForGroup(groupFolder).map(toScheduledTask),
+  getByGroup: (groupFolder) => resource.getForGroup(groupFolder).map(toScheduledTask),
 
-  getAllTasks: () => resource.getAll().map(toScheduledTask),
+  getAll: () => resource.getAll().map(toScheduledTask),
 
-  updateTask: (task) => {
+  update: (task) => {
     resource.update(task.id, toTaskRow(task));
   },
 
-  deleteTask: (id) => {
+  delete: (id) => {
     resource.delete(id);
   },
 
-  getAllDueScheduledTasks: () => resource.getDue().map(toScheduledTask),
+  getDue: () => resource.getDue().map(toScheduledTask),
 
   updateAfterRun: (id, lastResult, nextRun = undefined) => resource.updateAfterRun(id, nextRun ?? null, lastResult),
 
-  saveTaskRunLog: (log) => resource.logRun(toTaskRunLogRow(log)),
+  saveRunLog: (log) => resource.logRun(toTaskRunLogRow(log)),
 });
 
 // --- Mapping functions ---

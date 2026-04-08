@@ -18,16 +18,14 @@ export interface ChannelOpts {
    * @param channel
    * @param isGroup
    */
-  onChatMetadata: (chatJid: string, timestamp: string, name?: string, channel?: string, isGroup?: boolean) => void;
+  onChatMetadata: (chatJid: string, timestamp: string, name: string, isGroup: boolean) => void;
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
-  resolveGroupFolderPath: (folder: string) => string;
 }
 
 export interface Channel {
   name: string;
   connect(): Promise<void>;
   sendMessage(jid: string, text: string): Promise<void>;
-  isConnected(): boolean;
   ownsJid(jid: string): boolean;
   disconnect(): Promise<void>;
   // Optional: typing indicator. Channels that support it implement it.

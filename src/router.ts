@@ -1,3 +1,4 @@
+import { Channel, NewMessage } from './types.js';
 import { formatLocalTime } from './timezone.js';
 
 export function escapeXml(s: string): string {

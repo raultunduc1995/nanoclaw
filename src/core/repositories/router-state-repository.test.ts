@@ -13,39 +13,39 @@ beforeEach(() => {
 });
 
 describe('getRouterState', () => {
-  it('returns undefined for missing key', () => {
-    expect(repo.getRouterState('nonexistent')).toBeUndefined();
+  it('returns undefined when nothing stored', () => {
+    expect(repo.get()).toBeUndefined();
   });
 
-  it('returns value after set', () => {
-    repo.setRouterState('cursor', '2024-01-01T00:00:00.000Z');
-    expect(repo.getRouterState('cursor')).toBe('2024-01-01T00:00:00.000Z');
+  it('returns state after set', () => {
+    repo.set({ lastMessageTimestamp: '2024-01-01T00:00:00.000Z', lastAgentTimestamp: { 'tg:123': '2024-01-01T00:00:00.000Z' } });
+    const result = repo.get();
+    expect(result?.lastMessageTimestamp).toBe('2024-01-01T00:00:00.000Z');
+    expect(result?.lastAgentTimestamp).toEqual({ 'tg:123': '2024-01-01T00:00:00.000Z' });
   });
 });
 
-describe('setRouterState', () => {
-  it('overwrites on duplicate key', () => {
-    repo.setRouterState('cursor', 'first');
-    repo.setRouterState('cursor', 'second');
-    expect(repo.getRouterState('cursor')).toBe('second');
+describe('set', () => {
+  it('overwrites on update', () => {
+    repo.set({ lastMessageTimestamp: 'first' });
+    repo.set({ lastMessageTimestamp: 'second' });
+    expect(repo.get()?.lastMessageTimestamp).toBe('second');
   });
 
-  it('stores multiple independent keys', () => {
-    repo.setRouterState('last_timestamp', 'ts1');
-    repo.setRouterState('last_agent_timestamp', 'ts2');
-    expect(repo.getRouterState('last_timestamp')).toBe('ts1');
-    expect(repo.getRouterState('last_agent_timestamp')).toBe('ts2');
-  });
-
-  it('stores empty string as value', () => {
-    repo.setRouterState('empty', '');
-    expect(repo.getRouterState('empty')).toBe('');
+  it('sets partial state', () => {
+    repo.set({ lastAgentTimestamp: { 'tg:1': 'ts1' } });
+    repo.set({ lastMessageTimestamp: 'ts2' });
+    const result = repo.get();
+    expect(result?.lastMessageTimestamp).toBe('ts2');
+    expect(result?.lastAgentTimestamp).toEqual({ 'tg:1': 'ts1' });
   });
 
   it('persists through fresh repository creation', () => {
-    repo.setRouterState('persistent', 'value');
+    repo.set({ lastMessageTimestamp: 'ts1', lastAgentTimestamp: { 'tg:123': 'ts2' } });
 
     const freshRepo = createRouterStateRepository(db.routerState);
-    expect(freshRepo.getRouterState('persistent')).toBe('value');
+    const result = freshRepo.get();
+    expect(result?.lastMessageTimestamp).toBe('ts1');
+    expect(result?.lastAgentTimestamp).toEqual({ 'tg:123': 'ts2' });
   });
 });

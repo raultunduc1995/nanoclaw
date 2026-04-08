@@ -237,10 +237,7 @@ export class TelegramChannel implements Channel {
       });
     });
     this.bot.on('message:voice', (ctx) => {
-      storeMedia(ctx, '[Voice message]', {
-        fileId: ctx.message.voice?.file_id,
-        filename: `voice_${ctx.message.message_id}`,
-      });
+      storeMedia(ctx, '[Voice message]');
     });
     this.bot.on('message:audio', (ctx) => {
       const name = ctx.message.audio?.file_name || `audio_${ctx.message.message_id}`;

@@ -30,10 +30,10 @@ export interface AdditionalMount {
 // --- Repository interface and implementation ---
 
 export interface GroupsRepository {
-  getRegisteredGroupsRecord: () => Record<string, RegisteredGroup>;
-  getRegisteredGroupsJids: () => Set<string>;
-  getBy: (jid: string) => RegisteredGroup | undefined;
-  registerGroup: (jid: string, group: RegisteredGroup) => void;
+  getAllAsRecord: () => Record<string, RegisteredGroup>;
+  getAllJids: () => Set<string>;
+  getByJid: (jid: string) => RegisteredGroup | undefined;
+  register: (jid: string, group: RegisteredGroup) => void;
 }
 
 export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRepository => {
@@ -47,13 +47,13 @@ export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRep
   };
 
   return {
-    getRegisteredGroupsRecord: () => registeredGroups,
+    getAllAsRecord: () => registeredGroups,
 
-    getRegisteredGroupsJids: () => new Set(Object.keys(registeredGroups)),
+    getAllJids: () => new Set(Object.keys(registeredGroups)),
 
-    getBy: (jid) => registeredGroups[jid],
+    getByJid: (jid) => registeredGroups[jid],
 
-    registerGroup: (jid, group) => {
+    register: (jid, group) => {
       const groupDir = resolveGroupFolderPath(group.folder);
       saveGroup(jid, group);
 

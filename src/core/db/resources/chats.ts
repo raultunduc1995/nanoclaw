@@ -13,40 +13,21 @@ export interface ChatRow {
 // --- Local resource interface and implementation ---
 
 export interface ChatsLocalResource {
-  storeNamedMetadata: (chatJid: string, metadata: { timestamp: string; name: string; channel?: string; isGroup?: boolean }) => void;
-  storeMetadata: (chatJid: string, metadata: { timestamp: string; channel?: string; isGroup?: boolean }) => void;
+  upsert: (chatJid: string, metadata: { timestamp: string; name: string; channel: string; isGroup: boolean }) => void;
   updateName: (chatJid: string, name: string) => void;
   getAll: () => ChatRow[];
 }
 
 export const createChatsLocalResource = (db: Database.Database): ChatsLocalResource => ({
-  storeNamedMetadata: (chatJid, metadata) => {
-    const { timestamp, name, channel, isGroup } = metadata;
-    const ch = channel ?? null;
-    const group = isGroup === undefined ? null : isGroup ? 1 : 0;
-
+  upsert: (chatJid, metadata) => {
     db.prepare(
       `INSERT INTO chats (jid, name, last_message_time, channel, is_group) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(jid) DO UPDATE SET
            name = excluded.name,
            last_message_time = MAX(last_message_time, excluded.last_message_time),
-           channel = COALESCE(excluded.channel, channel),
-           is_group = COALESCE(excluded.is_group, is_group)`,
-    ).run(chatJid, name, timestamp, ch, group);
-  },
-
-  storeMetadata: (chatJid, metadata) => {
-    const { timestamp, channel, isGroup } = metadata;
-    const ch = channel ?? null;
-    const group = isGroup === undefined ? null : isGroup ? 1 : 0;
-
-    db.prepare(
-      `INSERT INTO chats (jid, name, last_message_time, channel, is_group) VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(jid) DO UPDATE SET
-             last_message_time = MAX(last_message_time, excluded.last_message_time),
-             channel = COALESCE(excluded.channel, channel),
-             is_group = COALESCE(excluded.is_group, is_group)`,
-    ).run(chatJid, chatJid, timestamp, ch, group);
+           channel = excluded.channel,
+           is_group = excluded.is_group`,
+    ).run(chatJid, metadata.name, metadata.timestamp, metadata.channel, metadata.isGroup ? 1 : 0);
   },
 
   updateName: (chatJid, name) => {

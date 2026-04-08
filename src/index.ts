@@ -1,3 +1,16 @@
+/**
+ * Still only in src/index.ts (not yet moved):
+  - Message loop (startMessageLoop) — the polling loop that checks for new messages, dedupes by group, pipes to running containers or enqueues
+  - Message processing (processGroupMessages) — triggers container, streams output, manages cursors
+  - Agent runner (runAgent) — wraps runContainerAgent, writes snapshots before spawn
+  - GroupQueue — scheduling and process management
+  - Router state — loadState, saveState, cursor management (lastTimestamp, lastAgentTimestamp)
+  - Crash recovery (recoverPendingMessages)
+  - Trigger/allowlist logic — checking trigger patterns and sender allowlists
+  - Task scheduler (startSchedulerLoop)
+  - Remote control — already identified as dead code
+ */
+
 import fs from 'fs';
 import path from 'path';
 
@@ -41,35 +54,25 @@ let messageLoopRunning = false;
 const channels: Channel[] = [];
 const queue = new GroupQueue();
 
-function loadState(): void {
-  lastTimestamp = getRouterState('last_timestamp') || '';
-  const agentTs = getRouterState('last_agent_timestamp');
-  try {
-    lastAgentTimestamp = agentTs ? JSON.parse(agentTs) : {};
-  } catch {
-    logger.warn('Corrupted last_agent_timestamp in DB, resetting');
-    lastAgentTimestamp = {};
-  }
-  registeredGroups = getAllRegisteredGroups();
-  logger.info({ groupCount: Object.keys(registeredGroups).length }, 'State loaded');
-}
+// function loadState(): void {
+//   lastTimestamp = getRouterState('last_timestamp') || '';
+//   const agentTs = getRouterState('last_agent_timestamp');
+//   try {
+//     lastAgentTimestamp = agentTs ? JSON.parse(agentTs) : {};
+//   } catch {
+//     logger.warn('Corrupted last_agent_timestamp in DB, resetting');
+//     lastAgentTimestamp = {};
+//   }
+//   registeredGroups = getAllRegisteredGroups();
+//   logger.info({ groupCount: Object.keys(registeredGroups).length }, 'State loaded');
+// }
 
 /**
  * Return the message cursor for a group, recovering from the last bot reply
  * if lastAgentTimestamp is missing (new group, corrupted state, restart).
  */
 function getOrRecoverCursor(chatJid: string): string {
-  const existing = lastAgentTimestamp[chatJid];
-  if (existing) return existing;
-
-  const botTs = getLastBotMessageTimestamp(chatJid, ASSISTANT_NAME);
-  if (botTs) {
-    logger.info({ chatJid, recoveredFrom: botTs }, 'Recovered message cursor from last bot reply');
-    lastAgentTimestamp[chatJid] = botTs;
-    saveState();
-    return botTs;
-  }
-  return '';
+  return lastAgentTimestamp[chatJid] ?? '';
 }
 
 function saveState(): void {
@@ -77,34 +80,34 @@ function saveState(): void {
   setRouterState('last_agent_timestamp', JSON.stringify(lastAgentTimestamp));
 }
 
-function registerGroup(jid: string, group: RegisteredGroup): void {
-  let groupDir: string;
-  try {
-    groupDir = resolveGroupFolderPath(group.folder);
-  } catch (err) {
-    logger.warn({ jid, folder: group.folder, err }, 'Rejecting group registration with invalid folder');
-    return;
-  }
+// function registerGroup(jid: string, group: RegisteredGroup): void {
+//   let groupDir: string;
+//   try {
+//     groupDir = resolveGroupFolderPath(group.folder);
+//   } catch (err) {
+//     logger.warn({ jid, folder: group.folder, err }, 'Rejecting group registration with invalid folder');
+//     return;
+//   }
 
-  registeredGroups[jid] = group;
-  setRegisteredGroup(jid, group);
+//   registeredGroups[jid] = group;
+//   setRegisteredGroup(jid, group);
 
-  // Create group folder
-  fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
+//   // Create group folder
+//   fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
 
-  // Copy global CLAUDE.md into non-main group folders so agents have
-  // shared instructions from the first run. Main has its own CLAUDE.md.
-  if (!group.isMain) {
-    const globalMd = path.join(GROUPS_DIR, 'global', 'CLAUDE.md');
-    const groupMd = path.join(groupDir, 'CLAUDE.md');
-    if (fs.existsSync(globalMd)) {
-      fs.copyFileSync(globalMd, groupMd);
-      logger.info({ folder: group.folder }, 'Copied global CLAUDE.md to group');
-    }
-  }
+//   // Copy global CLAUDE.md into non-main group folders so agents have
+//   // shared instructions from the first run. Main has its own CLAUDE.md.
+//   if (!group.isMain) {
+//     const globalMd = path.join(GROUPS_DIR, 'global', 'CLAUDE.md');
+//     const groupMd = path.join(groupDir, 'CLAUDE.md');
+//     if (fs.existsSync(globalMd)) {
+//       fs.copyFileSync(globalMd, groupMd);
+//       logger.info({ folder: group.folder }, 'Copied global CLAUDE.md to group');
+//     }
+//   }
 
-  logger.info({ jid, name: group.name, folder: group.folder }, 'Group registered');
-}
+//   logger.info({ jid, name: group.name, folder: group.folder }, 'Group registered');
+// }
 
 /**
  * Get available groups list for the agent.
@@ -375,100 +378,104 @@ function recoverPendingMessages(): void {
   }
 }
 
-function ensureContainerSystemRunning(): void {
-  ensureContainerRuntimeRunning();
-  cleanupOrphans();
-}
+// function ensureContainerSystemRunning(): void {
+//   ensureContainerRuntimeRunning();
+//   cleanupOrphans();
+// }
 
 async function main(): Promise<void> {
-  ensureContainerSystemRunning();
-  initDatabase();
-  logger.info('Database initialized');
-  loadState();
+  // ensureContainerSystemRunning();
 
-  restoreRemoteControl();
+  // initDatabase();
+  // logger.info('Database initialized');
+
+  // loadState();
+
+  // restoreRemoteControl(); // NOT NEEDED
 
   // Graceful shutdown handlers
-  const shutdown = async (signal: string) => {
-    logger.info({ signal }, 'Shutdown signal received');
-    await queue.shutdown(10000);
-    for (const ch of channels) await ch.disconnect();
-    process.exit(0);
-  };
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  // const shutdown = async (signal: string) => {
+  //   logger.info({ signal }, 'Shutdown signal received');
+  //   await queue.shutdown(10000);
+  //   for (const ch of channels) await ch.disconnect();
+  //   process.exit(0);
+  // };
+  // process.on('SIGTERM', () => shutdown('SIGTERM'));
+  // process.on('SIGINT', () => shutdown('SIGINT'));
 
+  // NOT NEEDED
   // Handle /remote-control and /remote-control-end commands
-  async function handleRemoteControl(command: string, chatJid: string, msg: NewMessage): Promise<void> {
-    const group = registeredGroups[chatJid];
-    if (!group?.isMain) {
-      logger.warn({ chatJid, sender: msg.sender }, 'Remote control rejected: not main group');
-      return;
-    }
+  // async function handleRemoteControl(command: string, chatJid: string, msg: NewMessage): Promise<void> {
+  //   const group = registeredGroups[chatJid];
+  //   if (!group?.isMain) {
+  //     logger.warn({ chatJid, sender: msg.sender }, 'Remote control rejected: not main group');
+  //     return;
+  //   }
 
-    const channel = findChannel(channels, chatJid);
-    if (!channel) return;
+  //   const channel = findChannel(channels, chatJid);
+  //   if (!channel) return;
 
-    if (command === '/remote-control') {
-      const result = await startRemoteControl(msg.sender, chatJid, process.cwd());
-      if (result.ok) {
-        await channel.sendMessage(chatJid, result.url);
-      } else {
-        await channel.sendMessage(chatJid, `Remote Control failed: ${result.error}`);
-      }
-    } else {
-      const result = stopRemoteControl();
-      if (result.ok) {
-        await channel.sendMessage(chatJid, 'Remote Control session ended.');
-      } else {
-        await channel.sendMessage(chatJid, result.error);
-      }
-    }
-  }
+  //   if (command === '/remote-control') {
+  //     const result = await startRemoteControl(msg.sender, chatJid, process.cwd());
+  //     if (result.ok) {
+  //       await channel.sendMessage(chatJid, result.url);
+  //     } else {
+  //       await channel.sendMessage(chatJid, `Remote Control failed: ${result.error}`);
+  //     }
+  //   } else {
+  //     const result = stopRemoteControl();
+  //     if (result.ok) {
+  //       await channel.sendMessage(chatJid, 'Remote Control session ended.');
+  //     } else {
+  //       await channel.sendMessage(chatJid, result.error);
+  //     }
+  //   }
+  // }
 
   // Channel callbacks (shared by all channels)
-  const channelOpts = {
-    onMessage: (chatJid: string, msg: NewMessage) => {
-      // Remote control commands — intercept before storage
-      const trimmed = msg.content.trim();
-      if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
-        handleRemoteControl(trimmed, chatJid, msg).catch((err) => logger.error({ err, chatJid }, 'Remote control command error'));
-        return;
-      }
+  // const channelOpts = {
+  //   onMessage: (chatJid: string, msg: NewMessage) => {
+  //     // No Remote-Control needed
+  //     // Remote control commands — intercept before storage
+  //     // const trimmed = msg.content.trim();
+  //     // if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
+  //     //   handleRemoteControl(trimmed, chatJid, msg).catch((err) => logger.error({ err, chatJid }, 'Remote control command error'));
+  //     //   return;
+  //     // }
 
-      // Sender allowlist drop mode: discard messages from denied senders before storing
-      if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[chatJid]) {
-        const cfg = loadSenderAllowlist();
-        if (shouldDropMessage(chatJid, cfg) && !isSenderAllowed(chatJid, msg.sender, cfg)) {
-          if (cfg.logDenied) {
-            logger.debug({ chatJid, sender: msg.sender }, 'sender-allowlist: dropping message (drop mode)');
-          }
-          return;
-        }
-      }
-      storeMessage(msg);
-    },
-    onChatMetadata: (chatJid: string, timestamp: string, name?: string, channel?: string, isGroup?: boolean) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
-    registeredGroups: () => registeredGroups,
-  };
-
+  //     // // Sender allowlist drop mode: discard messages from denied senders before storing
+  //     // // NOT NEEDED FOR NOW.
+  //     // if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[chatJid]) {
+  //     //   const cfg = loadSenderAllowlist();
+  //     //   if (shouldDropMessage(chatJid, cfg) && !isSenderAllowed(chatJid, msg.sender, cfg)) {
+  //     //     if (cfg.logDenied) {
+  //     //       logger.debug({ chatJid, sender: msg.sender }, 'sender-allowlist: dropping message (drop mode)');
+  //     //     }
+  //     //     return;
+  //     //   }
+  //     // }
+  //     storeMessage(msg);
+  //   },
+  //   onChatMetadata: (chatJid: string, timestamp: string, name?: string, channel?: string, isGroup?: boolean) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
+  //   registeredGroups: () => registeredGroups,
+  // };
   // Create and connect all registered channels.
   // Each channel self-registers via the barrel import above.
   // Factories return null when credentials are missing, so unconfigured channels are skipped.
-  for (const channelName of getRegisteredChannelNames()) {
-    const factory = getChannelFactory(channelName)!;
-    const channel = factory(channelOpts);
-    if (!channel) {
-      logger.warn({ channel: channelName }, 'Channel installed but credentials missing — skipping. Check .env or re-run the channel skill.');
-      continue;
-    }
-    channels.push(channel);
-    await channel.connect();
-  }
-  if (channels.length === 0) {
-    logger.fatal('No channels connected');
-    process.exit(1);
-  }
+  // for (const channelName of getRegisteredChannelNames()) {
+  //   const factory = getChannelFactory(channelName)!;
+  //   const channel = factory(channelOpts);
+  //   if (!channel) {
+  //     logger.warn({ channel: channelName }, 'Channel installed but credentials missing — skipping. Check .env or re-run the channel skill.');
+  //     continue;
+  //   }
+  //   channels.push(channel);
+  //   await channel.connect();
+  // }
+  // if (channels.length === 0) {
+  //   logger.fatal('No channels connected');
+  //   process.exit(1);
+  // }
 
   // Start subsystems (independently of connection handler)
   startSchedulerLoop({
@@ -485,38 +492,42 @@ async function main(): Promise<void> {
       if (text) await channel.sendMessage(jid, text);
     },
   });
-  startIpcWatcher({
-    sendMessage: (jid, text) => {
-      const channel = findChannel(channels, jid);
-      if (!channel) throw new Error(`No channel for JID: ${jid}`);
-      return channel.sendMessage(jid, text);
-    },
-    registeredGroups: () => registeredGroups,
-    registerGroup,
-    syncGroups: async (force: boolean) => {
-      await Promise.all(channels.filter((ch) => ch.syncGroups).map((ch) => ch.syncGroups!(force)));
-    },
-    getAvailableGroups,
-    writeGroupsSnapshot: (gf, im, ag, rj) => writeGroupsSnapshot(gf, im, ag, rj),
-    onTasksChanged: () => {
-      const tasks = getAllTasks();
-      const taskRows = tasks.map((t) => ({
-        id: t.id,
-        groupFolder: t.group_folder,
-        prompt: t.prompt,
-        script: t.script || undefined,
-        schedule_type: t.schedule_type,
-        schedule_value: t.schedule_value,
-        status: t.status,
-        next_run: t.next_run,
-      }));
-      for (const group of Object.values(registeredGroups)) {
-        writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
-      }
-    },
-  });
+
+  // startIpcWatcher({
+  //   sendMessage: (jid, text) => {
+  //     const channel = findChannel(channels, jid);
+  //     if (!channel) throw new Error(`No channel for JID: ${jid}`);
+  //     return channel.sendMessage(jid, text);
+  //   },
+  //   registeredGroups: () => registeredGroups,
+  //   registerGroup,
+  //   syncGroups: async (force: boolean) => {
+  //     await Promise.all(channels.filter((ch) => ch.syncGroups).map((ch) => ch.syncGroups!(force)));
+  //   },
+  //   getAvailableGroups,
+  //   writeGroupsSnapshot: (gf, im, ag, rj) => writeGroupsSnapshot(gf, im, ag, rj),
+  //   onTasksChanged: () => {
+  //     const tasks = getAllTasks();
+  //     const taskRows = tasks.map((t) => ({
+  //       id: t.id,
+  //       groupFolder: t.group_folder,
+  //       prompt: t.prompt,
+  //       script: t.script || undefined,
+  //       schedule_type: t.schedule_type,
+  //       schedule_value: t.schedule_value,
+  //       status: t.status,
+  //       next_run: t.next_run,
+  //     }));
+  //     for (const group of Object.values(registeredGroups)) {
+  //       writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
+  //     }
+  //   },
+  // });
+
   queue.setProcessMessagesFn(processGroupMessages);
+
   recoverPendingMessages();
+
   startMessageLoop().catch((err) => {
     logger.fatal({ err }, 'Message loop crashed unexpectedly');
     process.exit(1);
