@@ -596,7 +596,6 @@ describe('TelegramChannel', () => {
 
       expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('private'), expect.any(Object));
     });
-
   });
 
   // --- Channel properties ---

@@ -45,7 +45,7 @@ export class TelegramChannel implements Channel {
       const chatName = chatType === 'private' ? ctx.from?.first_name || 'Private' : 'title' in ctx.chat ? ctx.chat.title || 'Unknown' : 'Unknown';
       ctx.reply(`Chat ID: \`tg:${chatId}\`\nName: ${chatName}\nType: ${chatType}`, { parse_mode: 'Markdown' });
     });
-    
+
     this.bot.on('message:text', async (ctx) => {
       if (ctx.message.text.startsWith('/')) {
         const cmd = ctx.message.text.slice(1).split(/[\s@]/)[0].toLowerCase();
@@ -62,10 +62,10 @@ export class TelegramChannel implements Channel {
       const replyTo = ctx.message.reply_to_message;
       const replyToMessageId = replyTo?.message_id?.toString();
       const replyToMessageContent = replyTo?.text || replyTo?.caption;
-      const replyToSenderName = replyTo ? (replyTo.from?.first_name || replyTo.from?.username || replyTo.from?.id?.toString() || 'Unknown') : undefined;
+      const replyToSenderName = replyTo ? replyTo.from?.first_name || replyTo.from?.username || replyTo.from?.id?.toString() || 'Unknown' : undefined;
 
       // Determine chat name
-      const chatName = ctx.chat.type === 'private' ? (senderName || 'Private') : ('title' in ctx.chat ? (ctx.chat.title || chatJid) : chatJid);
+      const chatName = ctx.chat.type === 'private' ? senderName || 'Private' : 'title' in ctx.chat ? ctx.chat.title || chatJid : chatJid;
 
       // Store chat metadata for discovery
       const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';

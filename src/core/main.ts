@@ -175,7 +175,7 @@ const initMessageFlow = () => {
     getRegisteredGroupsJids: () => groupsRepo.getAllJids(),
     enqueueMessageCheck: (jid) => groupQueue.enqueueMessageCheck(jid),
   });
-}
+};
 
 const initMain = () => {
   ensureContainerRuntimeRunning();

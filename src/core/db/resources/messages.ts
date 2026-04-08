@@ -23,17 +23,7 @@ export const createMessagesLocalResource = (db: Database.Database): MessagesLoca
     db.prepare(
       `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, reply_to_message_id, reply_to_message_content, reply_to_sender_name)
        VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
-    ).run(
-      msg.id,
-      msg.chat_jid,
-      msg.sender,
-      msg.sender_name,
-      msg.content,
-      msg.timestamp,
-      msg.reply_to_message_id,
-      msg.reply_to_message_content,
-      msg.reply_to_sender_name,
-    );
+    ).run(msg.id, msg.chat_jid, msg.sender, msg.sender_name, msg.content, msg.timestamp, msg.reply_to_message_id, msg.reply_to_message_content, msg.reply_to_sender_name);
   },
 
   getNew: (jids, lastTimestamp, limit = 200) => {
