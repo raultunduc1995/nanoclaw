@@ -15,6 +15,7 @@ groups/
 # Local overrides
 CLAUDE.md
 CLAUDE.local.md
+CLAUDE.project.md
 CLAUDE.thehive_spec.md
 CLAUDE.own_settings.md
 CLAUDE.settings.txt

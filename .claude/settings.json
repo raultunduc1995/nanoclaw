@@ -8,26 +8,5 @@
       "Bash(sqlite3:*)"
     ]
   },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/raultunduc/nanoclaw/.claude/hooks/check-structural-change.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/raultunduc/nanoclaw/.claude/hooks/check-structural-change.sh"
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": {}
 }
