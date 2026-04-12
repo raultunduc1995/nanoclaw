@@ -31,7 +31,7 @@ let messageFlow: MessageFlow;
 let taskFlow: TaskFlow;
 let agentFlow: AgentFlow;
 let ipcHandler: IpcHandler;
-let groupQueue: GroupQueue; // TODO: Check the groupqueue implementation
+let groupQueue: GroupQueue;
 
 const initRepos = () => {
   const localResource = initLocalDatabase();
@@ -124,61 +124,8 @@ const initMessageFlow = () => {
     getNewMessagesSince: (jids, since) => messagesRepo.getNewSince(jids, since),
     getFormattedMessagesFor: (messages) => formatMessages(messages),
     saveRouterState: (state) => routerStateRepo.set(state),
-    enqueueMessageCheck: (jid) => groupQueue.enqueueMessageCheck(jid), // TODO: Check the groupqueue implementation
-    sendMessageToQueue: (jid, message) => groupQueue.sendMessage(jid, message), // TODO: Check the groupqueue implementation
+    deliver: (jid, groupFolder, prompt) => groupQueue.deliver(jid, groupFolder, prompt),
     setTypingForChannel: (jid) => channelsRegistry.findChannel(jid)?.setTyping(jid),
-    // TODO: REFACTOR IMMEDIATELY
-    runAgent: async (group, prompt, jid) => {
-      channelsRegistry.findChannel(jid)?.setTyping(jid);
-
-      // Track idle timer for closing stdin when agent is idle
-      let idleTimer: ReturnType<typeof setTimeout> | null = null;
-      const resetIdleTimer = () => {
-        if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => {
-          logger.debug({ group: group.name }, 'Idle timeout, closing container stdin');
-          groupQueue.closeStdin(jid);
-        }, IDLE_TIMEOUT);
-      };
-
-      taskFlow.onTasksChangedFor(group);
-      agentFlow.writeAvailableGroupsIn(group.folder, getAvailableChatGroups(), group.isMain);
-      let hadError = false;
-      let outputSentToUser = false;
-      // Run container agent...
-      const runContainerAgentOutput = await runContainerAgent(
-        { name: group.name, folder: group.folder, trigger: '', added_at: group.addedAt },
-        { prompt: prompt, groupFolder: group.folder, chatJid: jid, isMain: group.isMain },
-        (childProcess, containerName) => groupQueue.registerProcess(jid, childProcess, containerName, group.folder),
-        async (containerOutput) => {
-          // Streaming output callback — called for each agent result
-          if (containerOutput.result) {
-            const raw = typeof containerOutput.result === 'string' ? containerOutput.result : JSON.stringify(containerOutput.result);
-            // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-            const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-            logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
-            if (text) {
-              await (channelsRegistry.findChannel(jid)?.sendMessage(jid, text) ?? Promise.resolve());
-              outputSentToUser = true;
-            }
-            // Only reset idle timer on actual results, not session-update markers (result: null)
-            resetIdleTimer();
-          }
-
-          if (containerOutput.status === 'success') {
-            groupQueue.notifyIdle(jid);
-          }
-
-          if (containerOutput.status === 'error') {
-            hadError = true;
-          }
-        },
-      );
-
-      if (idleTimer) clearTimeout(idleTimer);
-
-      return [runContainerAgentOutput, hadError, outputSentToUser];
-    },
   });
 };
 
@@ -221,7 +168,49 @@ const initMain = () => {
   cleanupOrphans();
 
   initRepos();
-  groupQueue = new GroupQueue();
+  groupQueue = new GroupQueue({
+    runAgent: async (jid, groupFolder, prompt) => {
+      const group = Object.values(groupsRepo.getAllAsRecord()).find((g) => g.folder === groupFolder);
+      if (!group) {
+        logger.error({ jid, groupFolder }, 'runAgent: group not found');
+        return;
+      }
+
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      const resetIdleTimer = () => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          logger.debug({ groupFolder }, 'Idle timeout, closing container stdin');
+          groupQueue.closeStdin(jid);
+        }, IDLE_TIMEOUT);
+      };
+
+      taskFlow.onTasksChangedFor(group);
+      agentFlow.writeAvailableGroupsIn(group.folder, getAvailableChatGroups(), group.isMain);
+
+      await runContainerAgent(
+        { name: group.name, folder: group.folder, trigger: '', added_at: group.addedAt },
+        { prompt, groupFolder, chatJid: jid, isMain: group.isMain },
+        (proc, containerName) => groupQueue.registerProcess(jid, proc, containerName, group.folder),
+        async (containerOutput) => {
+          if (containerOutput.result) {
+            const raw = typeof containerOutput.result === 'string' ? containerOutput.result : JSON.stringify(containerOutput.result);
+            const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+            logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
+            if (text) {
+              await (channelsRegistry.findChannel(jid)?.sendMessage(jid, text) ?? Promise.resolve());
+            }
+            resetIdleTimer();
+          }
+          if (containerOutput.status === 'success') {
+            groupQueue.notifyIdle(jid);
+          }
+        },
+      );
+
+      if (idleTimer) clearTimeout(idleTimer);
+    },
+  });
   initAgentFlow();
   initTaskFlow();
   initMessageFlow();
@@ -231,7 +220,7 @@ const initMain = () => {
 const registerCleanupHandlers = () => {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
-    // await queue.shutdown(10000);
+    await groupQueue.shutdown(10000);
     await channelsRegistry.disconnectAll();
     process.exit(0);
   };
@@ -266,7 +255,6 @@ export const main = async () => {
   await registerChannels();
 
   ipcHandler.start();
-  groupQueue.setProcessMessagesFn(messageFlow.processGroupMessages);
   messageFlow.enqueuePreviousSessionLostMessages();
   messageFlow.startMessagesWatcher();
   taskFlow.startSchedulerLoop();

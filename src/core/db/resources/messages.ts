@@ -36,9 +36,9 @@ export const createMessagesLocalResource = (db: Database.Database): MessagesLoca
           FROM messages
           WHERE timestamp > ? AND chat_jid IN (${placeholders})
             AND content != '' AND content IS NOT NULL
-          ORDER BY timestamp DESC
+          ORDER BY timestamp DESC, CAST(id AS INTEGER) DESC
           LIMIT ?
-        ) ORDER BY timestamp
+        ) ORDER BY timestamp, CAST(id AS INTEGER)
       `;
 
     return db.prepare(sql).all(lastTimestamp, ...jids, limit) as MessageRow[];
@@ -51,9 +51,9 @@ export const createMessagesLocalResource = (db: Database.Database): MessagesLoca
           FROM messages
           WHERE chat_jid = ? AND timestamp > ?
             AND content != '' AND content IS NOT NULL
-          ORDER BY timestamp DESC
+          ORDER BY timestamp DESC, CAST(id AS INTEGER) DESC
           LIMIT ?
-        ) ORDER BY timestamp
+        ) ORDER BY timestamp, CAST(id AS INTEGER)
       `;
 
     return db.prepare(sql).all(chatJid, sinceTimestamp, MAX_MESSAGES_PER_PROMPT) as MessageRow[];

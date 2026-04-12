@@ -1,4 +1,3 @@
-import { ContainerOutput } from '../../container-runner.js';
 import { logger } from '../../logger.js';
 
 import { RouterState, Message, RegisteredGroup } from '../repositories/index.js';
@@ -7,7 +6,6 @@ import { formatMessages } from '../utils/index.js';
 export interface MessageFlow {
   enqueuePreviousSessionLostMessages: () => void;
   startMessagesWatcher: () => Promise<void>;
-  processGroupMessages: (jid: string) => Promise<boolean>;
 }
 
 export interface MessageFlowDeps {
@@ -18,10 +16,8 @@ export interface MessageFlowDeps {
   getMessagesSince: (jid: string, since: string) => Message[];
   getNewMessagesSince: (jid: Set<string>, since: string) => { messages: Message[]; newTimestamp: string };
   getFormattedMessagesFor: (messages: Message[]) => string;
-  enqueueMessageCheck: (jid: string) => void;
-  sendMessageToQueue: (jid: string, message: string) => boolean;
+  deliver: (jid: string, groupFolder: string, prompt: string) => boolean;
   setTypingForChannel: (jid: string) => void;
-  runAgent: (group: RegisteredGroup, prompt: string, jid: string) => Promise<[ContainerOutput, boolean, boolean]>;
 }
 
 export const createMessageFlow = (deps: MessageFlowDeps): MessageFlow => {
@@ -34,24 +30,22 @@ export const createMessageFlow = (deps: MessageFlowDeps): MessageFlow => {
 
   const watchForIncomingMessages = () => {
     const registeredJids = deps.getRegisteredGroupsJids();
-    if (registeredJids.size <= 0) {
-      return;
-    }
+    if (registeredJids.size <= 0) return;
 
     const { messages, newTimestamp } = deps.getNewMessagesSince(registeredJids, state.lastMessageTimestamp);
-    if (messages.length <= 0) {
-      return;
-    }
+    if (messages.length <= 0) return;
 
     state.lastMessageTimestamp = newTimestamp;
 
-    const foundGroupsMessages = Map.groupBy(messages, (m) => m.chatJid);
-    for (const [jid, groupMessages] of foundGroupsMessages) {
-      const formattedMessages = deps.getFormattedMessagesFor(groupMessages);
-      if (!deps.sendMessageToQueue(jid, formattedMessages)) {
-        deps.enqueueMessageCheck(jid);
-        continue;
-      }
+    const byGroup = Map.groupBy(messages, (m) => m.chatJid);
+    for (const [jid, groupMessages] of byGroup) {
+      const group = deps.getRegisteredGroups()[jid];
+      if (!group) continue;
+
+      const prompt = deps.getFormattedMessagesFor(groupMessages);
+      const delivered = deps.deliver(jid, group.folder, prompt);
+      if (!delivered) continue;
+
       state.lastAgentTimestamp[jid] = groupMessages.at(-1)!.timestamp;
       deps.setTypingForChannel(jid);
     }
@@ -76,7 +70,7 @@ export const createMessageFlow = (deps: MessageFlowDeps): MessageFlow => {
         if (pendingMessages.length <= 0) continue;
 
         logger.info({ group: group.name, pendingCount: pendingMessages.length }, 'Recovery: found unprocessed messages');
-        deps.enqueueMessageCheck(jid);
+        deps.deliver(jid, group.folder, formatMessages(pendingMessages));
       }
     },
 
@@ -87,35 +81,7 @@ export const createMessageFlow = (deps: MessageFlowDeps): MessageFlow => {
       }
       isRunning = true;
       logger.info(`Starting watching for incoming messages...`);
-
       loop();
-    },
-
-    processGroupMessages: async (jid) => {
-      const group = deps.getRegisteredGroups()[jid];
-      if (!group) return true;
-
-      const missedMessages = deps.getMessagesSince(jid, state.lastAgentTimestamp[jid] ?? '');
-      if (missedMessages.length <= 0) return true;
-
-      const previousAgentTimestamp = state.lastAgentTimestamp[jid] ?? '';
-      state.lastAgentTimestamp[jid] = missedMessages.at(-1)!.timestamp;
-      deps.saveRouterState(state);
-
-      const prompt = formatMessages(missedMessages);
-      const [runContainerAgentOutput, hadError, outputSentToUser] = await deps.runAgent(group, prompt, jid);
-
-      if (runContainerAgentOutput.status !== 'error' && !hadError) return true;
-      if (outputSentToUser) {
-        logger.warn({ group: group.name }, 'Agent error after output was sent, skipping cursor rollback to prevent duplicates');
-        return true;
-      }
-
-      state.lastAgentTimestamp[jid] = previousAgentTimestamp;
-      deps.saveRouterState(state);
-      logger.warn({ group: group.name }, `Agent could not process the incoming messages...`);
-
-      return false;
     },
   };
 };
