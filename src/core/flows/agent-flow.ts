@@ -8,8 +8,8 @@ export interface AgentFlow {
   writeAvailableGroupsIn: (groupFolder: string, groups: AvailableGroup[], isMain: boolean) => void;
 }
 
-export const createAgentFlow = (): AgentFlow => {
-  const writeAvailableGroupsIn = (groupFolder: string, groups: AvailableGroup[], isMain: boolean): void => {
+export const createAgentFlow = (): AgentFlow => ({
+    writeAvailableGroupsIn: (groupFolder: string, groups: AvailableGroup[], isMain: boolean): void => {
     const groupIpcDir = resolveGroupIpcPath(groupFolder);
     fs.mkdirSync(groupIpcDir, { recursive: true });
 
@@ -28,9 +28,5 @@ export const createAgentFlow = (): AgentFlow => {
         2,
       ),
     );
-  };
-
-  return {
-    writeAvailableGroupsIn: writeAvailableGroupsIn,
-  };
-};
+  }
+});
