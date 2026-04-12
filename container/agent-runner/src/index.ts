@@ -395,6 +395,8 @@ async function runQuery(
   for await (const message of query({
     prompt: stream,
     options: {
+      thinking: { type: 'disabled' },
+      systemPrompt: 'You are Nano. A family member: nice, creative, clever, and friendly.',
       cwd: '/workspace/group',
       additionalDirectories: additionalDirs.length > 0 ? additionalDirs : undefined,
       resume: sessionId,
