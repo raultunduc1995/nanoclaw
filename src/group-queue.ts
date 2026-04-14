@@ -1,6 +1,6 @@
 import { ChildProcess } from 'child_process';
 
-import { MAX_CONCURRENT_CONTAINERS } from './config.js';
+import { MAX_CONCURRENT_AGENTS } from './config.js';
 import { logger } from './logger.js';
 
 interface QueuedTask {
@@ -59,7 +59,7 @@ export class GroupQueue {
       return false;
     }
 
-    if (this.activeCount >= MAX_CONCURRENT_CONTAINERS) {
+    if (this.activeCount >= MAX_CONCURRENT_AGENTS) {
       logger.debug({ groupJid, activeCount: this.activeCount }, 'At concurrency limit, delivery rejected');
       return false;
     }
