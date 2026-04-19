@@ -1,7 +1,7 @@
 import { ChildProcess } from 'child_process';
 
-import { MAX_CONCURRENT_AGENTS } from './config.js';
-import { logger } from './logger.js';
+import { MAX_CONCURRENT_AGENTS } from '../config.js';
+import { logger } from '../logger.js';
 
 interface QueuedTask {
   id: string;
@@ -150,7 +150,7 @@ export class GroupQueue {
     }
   }
 
-  async shutdown(_gracePeriodMs: number): Promise<void> {
+  async shutdown(): Promise<void> {
     this.shuttingDown = true;
     logger.info({ activeCount: this.activeCount }, 'GroupQueue shutting down');
   }
