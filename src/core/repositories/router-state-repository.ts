@@ -8,7 +8,6 @@ export interface RouterStateRepository {
 }
 
 export interface RouterState {
-  lastMessageTimestamp?: string;
   lastAgentTimestamp?: Record<string, string>;
 }
 
@@ -18,14 +17,12 @@ export const createRouterStateRepository = (resource: RouterStateLocalResource):
       const routerStateRow = resource.get();
       if (routerStateRow) {
         return {
-          lastMessageTimestamp: routerStateRow.last_timestamp,
           lastAgentTimestamp: routerStateRow.last_agent_timestamp,
         };
       }
     },
     set: (routerState) =>
       resource.set({
-        last_timestamp: routerState.lastMessageTimestamp,
         last_agent_timestamp: routerState.lastAgentTimestamp,
       }),
   };

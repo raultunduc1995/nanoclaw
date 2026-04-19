@@ -18,34 +18,22 @@ describe('getRouterState', () => {
   });
 
   it('returns state after set', () => {
-    repo.set({ lastMessageTimestamp: '2024-01-01T00:00:00.000Z', lastAgentTimestamp: { 'tg:123': '2024-01-01T00:00:00.000Z' } });
+    repo.set({ lastAgentTimestamp: { 'tg:123': '2024-01-01T00:00:00.000Z' } });
     const result = repo.get();
-    expect(result?.lastMessageTimestamp).toBe('2024-01-01T00:00:00.000Z');
     expect(result?.lastAgentTimestamp).toEqual({ 'tg:123': '2024-01-01T00:00:00.000Z' });
   });
 });
 
 describe('set', () => {
   it('overwrites on update', () => {
-    repo.set({ lastMessageTimestamp: 'first' });
-    repo.set({ lastMessageTimestamp: 'second' });
-    expect(repo.get()?.lastMessageTimestamp).toBe('second');
-  });
-
-  it('sets partial state', () => {
-    repo.set({ lastAgentTimestamp: { 'tg:1': 'ts1' } });
-    repo.set({ lastMessageTimestamp: 'ts2' });
-    const result = repo.get();
-    expect(result?.lastMessageTimestamp).toBe('ts2');
-    expect(result?.lastAgentTimestamp).toEqual({ 'tg:1': 'ts1' });
+    repo.set({ lastAgentTimestamp: { 'tg:1': 'first' } });
+    repo.set({ lastAgentTimestamp: { 'tg:1': 'second' } });
+    expect(repo.get()?.lastAgentTimestamp).toEqual({ 'tg:1': 'second' });
   });
 
   it('persists through fresh repository creation', () => {
-    repo.set({ lastMessageTimestamp: 'ts1', lastAgentTimestamp: { 'tg:123': 'ts2' } });
-
+    repo.set({ lastAgentTimestamp: { 'tg:123': 'ts2' } });
     const freshRepo = createRouterStateRepository(db.routerState);
-    const result = freshRepo.get();
-    expect(result?.lastMessageTimestamp).toBe('ts1');
-    expect(result?.lastAgentTimestamp).toEqual({ 'tg:123': 'ts2' });
+    expect(freshRepo.get()?.lastAgentTimestamp).toEqual({ 'tg:123': 'ts2' });
   });
 });
