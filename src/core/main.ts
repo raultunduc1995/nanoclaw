@@ -97,6 +97,7 @@ const initMessageFlow = () => {
     getRegisteredGroups: () => groupsRepo.getAllAsRecord(),
     getMessagesSince: (jid, since) => messagesRepo.getSince(jid, since),
     deliver: (jid, groupFolder, prompt) => groupQueue.deliver(jid, groupFolder, prompt),
+    saveLastAgentTimestamp: (timestamps) => routerStateRepo.set({ lastAgentTimestamp: timestamps }),
   });
 };
 
@@ -147,13 +148,18 @@ const initMain = () => {
       taskFlow.onTasksChangedFor(group);
       agentFlow.writeAvailableGroupsIn(group.folder, getAvailableChatGroups(), group.isMain);
 
-      await runAgent(
-        { prompt, groupFolder, chatJid: jid, isMain: group.isMain },
+      const output = await runAgent(
+        { prompt, groupFolder, chatJid: jid, isMain: group.isMain, sessionId },
         (proc, containerName) => groupQueue.registerProcess(jid, proc, containerName, group.folder),
         async (text) => {
           await (channelsRegistry.findChannel(jid)?.sendMessage(jid, text) ?? Promise.resolve());
         },
       );
+
+      if (output.sessionId) {
+        sessionId = output.sessionId;
+        logger.info({ jid, groupFolder, sessionId }, 'Agent session ID updated');
+      }
     },
   });
   initAgentFlow();

@@ -11,6 +11,7 @@ export interface MessageFlowDeps {
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
   getMessagesSince: (jid: string, since: string) => Message[];
   deliver: (jid: string, groupFolder: string, prompt: string) => boolean;
+  saveLastAgentTimestamp: (timestamps: Record<string, string>) => void;
 }
 
 export const createMessageFlow = (deps: MessageFlowDeps): MessageFlow => {
@@ -23,6 +24,8 @@ export const createMessageFlow = (deps: MessageFlowDeps): MessageFlow => {
         if (pendingMessages.length <= 0) continue;
 
         logger.info({ group: group.name, pendingCount: pendingMessages.length }, 'Recovery: found unprocessed messages');
+        const lastTimestamp = pendingMessages[pendingMessages.length - 1].timestamp;
+        deps.saveLastAgentTimestamp({ ...lastAgentTimestamp, [jid]: lastTimestamp });
         deps.deliver(jid, group.folder, formatMessages(pendingMessages));
       }
     },

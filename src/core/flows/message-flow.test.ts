@@ -2,8 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { createMessageFlow, MessageFlowDeps } from './message-flow.js';
 
-// --- mocks ---
-
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -11,8 +9,6 @@ vi.mock('../../logger.js', () => ({
 vi.mock('../utils/index.js', () => ({
   formatMessages: (messages: { content: string }[]) => messages.map((m) => m.content).join('\n'),
 }));
-
-// --- fixtures ---
 
 const makeGroup = (overrides = {}) => ({
   name: 'TestGroup',
@@ -33,15 +29,11 @@ const makeMessage = (overrides = {}) => ({
 });
 
 const makeDeps = (overrides: Partial<MessageFlowDeps> = {}): MessageFlowDeps => ({
-  saveRouterState: vi.fn(),
-  getRouterState: vi.fn(() => undefined),
+  getLastAgentTimestamps: vi.fn(() => ({})),
   getRegisteredGroups: vi.fn(() => ({})),
-  getRegisteredGroupsJids: vi.fn(() => new Set<string>()),
   getMessagesSince: vi.fn(() => []),
-  getNewMessagesSince: vi.fn(() => ({ messages: [], newTimestamp: '' })),
-  getFormattedMessagesFor: vi.fn(() => 'formatted'),
   deliver: vi.fn(() => true),
-  setTypingForChannel: vi.fn(),
+  saveLastAgentTimestamp: vi.fn(),
   ...overrides,
 });
 
@@ -49,13 +41,10 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// --- enqueuePreviousSessionLostMessages ---
-
 describe('enqueuePreviousSessionLostMessages', () => {
   it('does not deliver when no registered groups', () => {
     const deps = makeDeps({ getRegisteredGroups: vi.fn(() => ({})) });
-    const flow = createMessageFlow(deps);
-    flow.enqueuePreviousSessionLostMessages();
+    createMessageFlow(deps).enqueuePreviousSessionLostMessages();
     expect(deps.deliver).not.toHaveBeenCalled();
   });
 
@@ -64,8 +53,7 @@ describe('enqueuePreviousSessionLostMessages', () => {
       getRegisteredGroups: vi.fn(() => ({ jid1: makeGroup() })),
       getMessagesSince: vi.fn(() => []),
     });
-    const flow = createMessageFlow(deps);
-    flow.enqueuePreviousSessionLostMessages();
+    createMessageFlow(deps).enqueuePreviousSessionLostMessages();
     expect(deps.deliver).not.toHaveBeenCalled();
   });
 
@@ -76,58 +64,44 @@ describe('enqueuePreviousSessionLostMessages', () => {
         jid2: makeGroup({ name: 'Other' }),
       })),
       getMessagesSince: vi.fn()
-        .mockReturnValueOnce([makeMessage()])  // jid1 has messages
-        .mockReturnValueOnce([]),               // jid2 has none
+        .mockReturnValueOnce([makeMessage()])
+        .mockReturnValueOnce([]),
     });
-    const flow = createMessageFlow(deps);
-    flow.enqueuePreviousSessionLostMessages();
+    createMessageFlow(deps).enqueuePreviousSessionLostMessages();
     expect(deps.deliver).toHaveBeenCalledTimes(1);
     expect(deps.deliver).toHaveBeenCalledWith('jid1', 'test-folder', expect.any(String));
   });
 
-  it('uses lastAgentTimestamp from previous router state', () => {
+  it('uses lastAgentTimestamp from previous state', () => {
     const deps = makeDeps({
-      getRouterState: vi.fn(() => ({
-        lastMessageTimestamp: '2026-01-01T00:00:00.000Z',
-        lastAgentTimestamp: { jid1: '2026-01-01T00:05:00.000Z' },
-      })),
+      getLastAgentTimestamps: vi.fn(() => ({ jid1: '2026-01-01T00:05:00.000Z' })),
       getRegisteredGroups: vi.fn(() => ({ jid1: makeGroup() })),
       getMessagesSince: vi.fn(() => [makeMessage()]),
     });
-    const flow = createMessageFlow(deps);
-    flow.enqueuePreviousSessionLostMessages();
+    createMessageFlow(deps).enqueuePreviousSessionLostMessages();
     expect(deps.getMessagesSince).toHaveBeenCalledWith('jid1', '2026-01-01T00:05:00.000Z');
   });
 
   it('passes empty string as since when no previous state', () => {
     const deps = makeDeps({
-      getRouterState: vi.fn(() => undefined),
+      getLastAgentTimestamps: vi.fn(() => ({})),
       getRegisteredGroups: vi.fn(() => ({ jid1: makeGroup() })),
       getMessagesSince: vi.fn(() => []),
     });
-    const flow = createMessageFlow(deps);
-    flow.enqueuePreviousSessionLostMessages();
+    createMessageFlow(deps).enqueuePreviousSessionLostMessages();
     expect(deps.getMessagesSince).toHaveBeenCalledWith('jid1', '');
   });
-});
 
-// --- startMessagesWatcher ---
-
-describe('startMessagesWatcher', () => {
-  it('starts without error', async () => {
-    const flow = createMessageFlow(makeDeps());
-    await expect(flow.startMessagesWatcher()).resolves.toBeUndefined();
-  });
-
-  it('does not start twice', async () => {
-    const deps = makeDeps();
-    const flow = createMessageFlow(deps);
-
-    await flow.startMessagesWatcher();
-    await flow.startMessagesWatcher();
-
-    // getRegisteredGroupsJids is called inside the loop — second start is a no-op
-    const callCount = (deps.getRegisteredGroupsJids as ReturnType<typeof vi.fn>).mock.calls.length;
-    expect(callCount).toBe(1);
+  it('saves last agent timestamp after delivery', () => {
+    const deps = makeDeps({
+      getLastAgentTimestamps: vi.fn(() => ({ jid2: 'ts-other' })),
+      getRegisteredGroups: vi.fn(() => ({ jid1: makeGroup() })),
+      getMessagesSince: vi.fn(() => [makeMessage({ timestamp: '2026-01-01T00:10:00.000Z' })]),
+    });
+    createMessageFlow(deps).enqueuePreviousSessionLostMessages();
+    expect(deps.saveLastAgentTimestamp).toHaveBeenCalledWith({
+      jid2: 'ts-other',
+      jid1: '2026-01-01T00:10:00.000Z',
+    });
   });
 });
