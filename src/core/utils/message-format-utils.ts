@@ -1,5 +1,5 @@
 import { TIMEZONE } from '../../config.js';
-import { Message } from '../repositories/index.js';
+import { Message } from '../channels/types.js';
 
 export const formatMessages = (messages: Message[], timezone: string = TIMEZONE): string => {
   const lines = messages.map((m) => {

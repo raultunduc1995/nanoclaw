@@ -28,9 +28,9 @@ let handlerDeps: IpcHandlerDeps;
 
 let handler: IpcHandler;
 
-const MAIN = { groupFolder: 'telegram_main', isMain: true };
-const OTHER = { groupFolder: 'other-group', isMain: false };
-const THIRD = { groupFolder: 'third-group', isMain: false };
+const MAIN = { groupFolder: 'telegram_main', isMain: true, sessionId: '' };
+const OTHER = { groupFolder: 'other-group', isMain: false, sessionId: '' };
+const THIRD = { groupFolder: 'third-group', isMain: false, sessionId: '' };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -63,9 +63,9 @@ beforeEach(() => {
   };
   handler = createIpcHandler(handlerDeps);
 
-  handlerDeps.groupsDeps.register('tg:main', { name: 'Main', folder: 'telegram_main', addedAt: '2024-01-01T00:00:00.000Z', isMain: true });
-  handlerDeps.groupsDeps.register('tg:other', { name: 'Other', folder: 'other-group', addedAt: '2024-01-01T00:00:00.000Z', isMain: false });
-  handlerDeps.groupsDeps.register('tg:third', { name: 'Third', folder: 'third-group', addedAt: '2024-01-01T00:00:00.000Z', isMain: false });
+  handlerDeps.groupsDeps.register('tg:main', { name: 'Main', folder: 'telegram_main', addedAt: '2024-01-01T00:00:00.000Z', isMain: true, sessionId: '' });
+  handlerDeps.groupsDeps.register('tg:other', { name: 'Other', folder: 'other-group', addedAt: '2024-01-01T00:00:00.000Z', isMain: false, sessionId: '' });
+  handlerDeps.groupsDeps.register('tg:third', { name: 'Third', folder: 'third-group', addedAt: '2024-01-01T00:00:00.000Z', isMain: false, sessionId: '' });
 });
 
 const seedTask = (id: string, groupFolder: string, chatJid: string, opts?: { status?: string }) => {

@@ -10,23 +10,6 @@ export const createSchema = (database: Database.Database): void => {
       is_group INTEGER DEFAULT 0
     );
 
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT,
-      chat_jid TEXT,
-      sender TEXT,
-      sender_name TEXT,
-      content TEXT,
-      timestamp TEXT,
-      is_from_me INTEGER,
-      is_bot_message INTEGER DEFAULT 0,
-      reply_to_message_id TEXT,
-      reply_to_message_content TEXT,
-      reply_to_sender_name TEXT,
-      PRIMARY KEY (id, chat_jid),
-      FOREIGN KEY (chat_jid) REFERENCES chats(jid)
-    );
-    CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
-
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
       id TEXT PRIMARY KEY,
       group_folder TEXT NOT NULL,
@@ -57,21 +40,14 @@ export const createSchema = (database: Database.Database): void => {
     );
     CREATE INDEX IF NOT EXISTS idx_task_run_logs ON task_run_logs(task_id, run_at);
 
-    CREATE TABLE IF NOT EXISTS router_state (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS registered_groups (
       jid TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       folder TEXT NOT NULL UNIQUE,
-      -- TODO: delete trigger_pattern and requires_trigger columns + migrate DB
-      trigger_pattern TEXT NOT NULL,
       added_at TEXT NOT NULL,
       container_config TEXT,
-      requires_trigger INTEGER DEFAULT 0,
-      is_main INTEGER DEFAULT 0
+      is_main INTEGER DEFAULT 0,
+      session_id TEXT NOT NULL DEFAULT ''
     );
   `);
 };

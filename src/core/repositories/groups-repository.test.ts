@@ -47,11 +47,10 @@ describe('getAllAsRecord', () => {
       jid: 'tg:main',
       name: 'Main',
       folder: 'telegram_main',
-      trigger_pattern: 'none',
       added_at: '2024-01-01T00:00:00.000Z',
       container_config: null,
-      requires_trigger: 0,
       is_main: 1,
+      session_id: '',
     });
 
     const freshRepo = createGroupsRepository(db.groups);
@@ -68,11 +67,10 @@ describe('getAllAsRecord', () => {
       jid: 'tg:dev',
       name: 'Dev Team',
       folder: 'telegram_dev-team',
-      trigger_pattern: 'none',
       added_at: '2026-03-01T10:00:00.000Z',
       container_config: JSON.stringify({ additionalMounts: [{ hostPath: '/tmp/test' }], timeout: 60000 }),
-      requires_trigger: 0,
       is_main: 0,
+      session_id: '',
     });
 
     const freshRepo = createGroupsRepository(db.groups);
@@ -95,8 +93,8 @@ describe('getRegisteredGroupsJids', () => {
   });
 
   it('returns jids after registration', () => {
-    repo.register('tg:one', { name: 'One', folder: 'telegram_one', addedAt: '2024-01-01T00:00:00.000Z', isMain: false });
-    repo.register('tg:two', { name: 'Two', folder: 'telegram_two', addedAt: '2024-01-01T00:00:00.000Z', isMain: false });
+    repo.register('tg:one', { name: 'One', folder: 'telegram_one', addedAt: '2024-01-01T00:00:00.000Z', isMain: false, sessionId: '' });
+    repo.register('tg:two', { name: 'Two', folder: 'telegram_two', addedAt: '2024-01-01T00:00:00.000Z', isMain: false, sessionId: '' });
 
     const jids = repo.getAllJids();
     expect(jids.has('tg:one')).toBe(true);
@@ -113,7 +111,7 @@ describe('getBy', () => {
   });
 
   it('returns group after registerGroup', () => {
-    repo.register('tg:chat', { name: 'Chat', folder: 'telegram_chat', addedAt: '2024-01-01T00:00:00.000Z', isMain: false });
+    repo.register('tg:chat', { name: 'Chat', folder: 'telegram_chat', addedAt: '2024-01-01T00:00:00.000Z', isMain: false, sessionId: '' });
 
     const group = repo.getByJid('tg:chat');
     expect(group).toBeDefined();
@@ -126,7 +124,7 @@ describe('getBy', () => {
 
 describe('register', () => {
   it('adds group to cache and persists to DB', () => {
-    repo.register('tg:new', { name: 'New Group', folder: 'telegram_new-group', addedAt: '2024-06-01T00:00:00.000Z', isMain: false });
+    repo.register('tg:new', { name: 'New Group', folder: 'telegram_new-group', addedAt: '2024-06-01T00:00:00.000Z', isMain: false, sessionId: '' });
 
     expect(repo.getByJid('tg:new')).toBeDefined();
     expect(repo.getAllAsRecord()['tg:new'].name).toBe('New Group');
@@ -137,8 +135,8 @@ describe('register', () => {
   });
 
   it('overwrites existing group', () => {
-    repo.register('tg:chat', { name: 'Original', folder: 'telegram_chat', addedAt: '2024-01-01T00:00:00.000Z', isMain: false });
-    repo.register('tg:chat', { name: 'Updated', folder: 'telegram_chat', addedAt: '2024-01-01T00:00:00.000Z', isMain: true });
+    repo.register('tg:chat', { name: 'Original', folder: 'telegram_chat', addedAt: '2024-01-01T00:00:00.000Z', isMain: false, sessionId: '' });
+    repo.register('tg:chat', { name: 'Updated', folder: 'telegram_chat', addedAt: '2024-01-01T00:00:00.000Z', isMain: true, sessionId: '' });
 
     expect(repo.getByJid('tg:chat')!.name).toBe('Updated');
     expect(repo.getByJid('tg:chat')!.isMain).toBe(true);
@@ -150,6 +148,7 @@ describe('register', () => {
       folder: 'telegram_mounts',
       addedAt: '2024-01-01T00:00:00.000Z',
       isMain: false,
+      sessionId: '',
       containerConfig: {
         additionalMounts: [{ hostPath: '/home/user/projects', containerPath: 'projects', readonly: true }],
         timeout: 120000,
@@ -165,14 +164,14 @@ describe('register', () => {
   });
 
   it('throws on invalid folder name', () => {
-    expect(() => repo.register('tg:bad', { name: 'Bad', folder: '../../outside', addedAt: '2024-01-01T00:00:00.000Z', isMain: false })).toThrow();
+    expect(() => repo.register('tg:bad', { name: 'Bad', folder: '../../outside', addedAt: '2024-01-01T00:00:00.000Z', isMain: false, sessionId: '' })).toThrow();
 
     expect(repo.getByJid('tg:bad')).toBeUndefined();
   });
 
   it('creates group directory with logs subdirectory', async () => {
     const fs = await import('fs');
-    repo.register('tg:dir', { name: 'Dir Test', folder: 'telegram_dir-test', addedAt: '2024-01-01T00:00:00.000Z', isMain: false });
+    repo.register('tg:dir', { name: 'Dir Test', folder: 'telegram_dir-test', addedAt: '2024-01-01T00:00:00.000Z', isMain: false, sessionId: '' });
 
     expect(fs.default.mkdirSync).toHaveBeenCalledWith('/tmp/test-groups/telegram_dir-test/logs', { recursive: true });
   });
@@ -181,7 +180,7 @@ describe('register', () => {
     const fs = await import('fs');
     (fs.default.existsSync as any).mockReturnValue(true);
 
-    repo.register('tg:secondary', { name: 'Secondary', folder: 'telegram_secondary', addedAt: '2024-01-01T00:00:00.000Z', isMain: false });
+    repo.register('tg:secondary', { name: 'Secondary', folder: 'telegram_secondary', addedAt: '2024-01-01T00:00:00.000Z', isMain: false, sessionId: '' });
 
     expect(fs.default.copyFileSync).toHaveBeenCalledWith('/tmp/test-groups/global/CLAUDE.md', '/tmp/test-groups/telegram_secondary/CLAUDE.md');
   });
@@ -189,7 +188,7 @@ describe('register', () => {
   it('does not copy global CLAUDE.md for main group', async () => {
     const fs = await import('fs');
 
-    repo.register('tg:main', { name: 'Main', folder: 'telegram_main', addedAt: '2024-01-01T00:00:00.000Z', isMain: true });
+    repo.register('tg:main', { name: 'Main', folder: 'telegram_main', addedAt: '2024-01-01T00:00:00.000Z', isMain: true, sessionId: '' });
 
     expect(fs.default.copyFileSync).not.toHaveBeenCalled();
   });

@@ -379,6 +379,7 @@ const fromIpcRegisterGroupToRegisteredGroup = (data: Extract<IpcTaskData, { type
   addedAt: new Date().toISOString(),
   containerConfig: data.containerConfig,
   isMain: false,
+  sessionId: '', // TODO: Send the sessionId as well
 });
 
 export const computeNextRun = ({ scheduleType, scheduleValue }: { scheduleType: 'cron' | 'interval' | 'once'; scheduleValue: string }): string => {

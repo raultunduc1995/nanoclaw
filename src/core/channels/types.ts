@@ -1,4 +1,16 @@
-import { Message, RegisteredGroup } from '../repositories/index.js';
+import { RegisteredGroup } from '../repositories/index.js';
+
+export interface Message {
+  id: string;
+  chatJid: string;
+  sender: string;
+  senderName: string;
+  content: string;
+  timestamp: string;
+  replyToMessageId?: string;
+  replyToMessageContent?: string;
+  replyToSenderName?: string;
+}
 
 export interface ChannelOpts {
   type: 'telegram';

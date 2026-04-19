@@ -15,6 +15,7 @@ export interface RegisteredGroup {
   addedAt: string;
   containerConfig?: ContainerConfig;
   isMain: boolean;
+  sessionId: string;
 }
 
 export interface ContainerConfig {
@@ -35,6 +36,7 @@ export interface GroupsRepository {
   getAllJids: () => Set<string>;
   getByJid: (jid: string) => RegisteredGroup | undefined;
   register: (jid: string, group: RegisteredGroup) => void;
+  updateSessionId: (jid: string, sessionId: string) => void;
 }
 
 export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRepository => {
@@ -65,6 +67,14 @@ export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRep
 
       logger.info({ jid, name: group.name, folder: group.folder }, 'Group registered');
     },
+
+    updateSessionId: (jid, sessionId) => {
+      const group = registeredGroups[jid];
+      if (!group) return;
+      const updated = { ...group, sessionId };
+      resource.set(jid, toGroupRow(jid, updated));
+      registeredGroups[jid] = updated;
+    },
   };
 };
 
@@ -76,17 +86,17 @@ const toRegisteredGroup = (row: GroupRow): RegisteredGroup => ({
   addedAt: row.added_at,
   containerConfig: row.container_config ? JSON.parse(row.container_config) : undefined,
   isMain: row.is_main === 1,
+  sessionId: row.session_id,
 });
 
 const toGroupRow = (jid: string, group: RegisteredGroup): GroupRow => ({
   jid,
   name: group.name,
   folder: group.folder,
-  trigger_pattern: 'none',
   added_at: group.addedAt,
   container_config: group.containerConfig ? JSON.stringify(group.containerConfig) : null,
-  requires_trigger: 0,
   is_main: group.isMain ? 1 : 0,
+  session_id: group.sessionId,
 });
 
 // --- Utility functions for group directory management ---

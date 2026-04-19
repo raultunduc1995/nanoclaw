@@ -6,10 +6,9 @@ export interface GroupRow {
   jid: string;
   name: string;
   folder: string;
-  trigger_pattern: string;
+  session_id: string;
   added_at: string;
   container_config: string | null;
-  requires_trigger: number | null;
   is_main: number | null;
 }
 
@@ -25,15 +24,14 @@ export const createGroupsLocalResource = (db: Database.Database): GroupsLocalRes
   get: (jid) => db.prepare('SELECT * FROM registered_groups WHERE jid = ?').get(jid) as GroupRow | undefined,
 
   set: (jid, group) => {
-    db.prepare(`INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    db.prepare(`INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, container_config, is_main, session_id) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
       jid,
       group.name,
       group.folder,
-      'none', // TODO: delete trigger_pattern column + migrate DB
       group.added_at,
       group.container_config ?? null,
-      0, // TODO: delete requires_trigger column + migrate DB
       group.is_main ? 1 : 0,
+      group.session_id,
     );
   },
 

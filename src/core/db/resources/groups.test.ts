@@ -16,11 +16,10 @@ const row = (overrides?: Partial<GroupRow>): GroupRow => ({
   jid: 'tg:100',
   name: 'Test Group',
   folder: 'telegram_test-group',
-  trigger_pattern: 'none',
   added_at: '2024-01-01T00:00:00.000Z',
   container_config: null,
-  requires_trigger: 0,
   is_main: 0,
+  session_id: '',
   ...overrides,
 });
 
@@ -84,7 +83,7 @@ describe('getAll', () => {
     const result = groups.getAll();
     expect(result[0].is_main).toBe(1);
     expect(result[0].container_config).toBe('{"timeout":5000}');
-    expect(result[0].trigger_pattern).toBe('none');
+
     expect(result[0].added_at).toBe('2024-01-01T00:00:00.000Z');
   });
 });

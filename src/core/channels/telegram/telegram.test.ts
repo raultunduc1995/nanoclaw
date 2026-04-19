@@ -80,6 +80,7 @@ function createTestOpts(overrides?: Partial<TelegramChannelOpts>): TelegramChann
         folder: 'test-group',
         addedAt: '2024-01-01T00:00:00.000Z',
         isMain: false,
+        sessionId: '',
       },
     })),
     ...overrides,
@@ -198,6 +199,7 @@ describe('TelegramChannel', () => {
           senderName: 'Alice',
           content: 'Hello everyone',
         }),
+        expect.anything(),
       );
     });
 
@@ -228,7 +230,9 @@ describe('TelegramChannel', () => {
       const ctx2 = createTextCtx({ text: '/remote-control' });
       await triggerTextMessage(ctx2);
       expect(opts.onInboundMessage).toHaveBeenCalledTimes(1);
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ content: '/remote-control' }));
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ content: '/remote-control' }),
+        expect.anything(),
+      );
     });
 
     it('extracts sender name from first_name', async () => {
@@ -239,7 +243,9 @@ describe('TelegramChannel', () => {
       const ctx = createTextCtx({ text: 'Hi', firstName: 'Bob' });
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: 'Bob' }));
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: 'Bob' }),
+        expect.anything(),
+      );
     });
 
     it('falls back to username when first_name missing', async () => {
@@ -251,7 +257,9 @@ describe('TelegramChannel', () => {
       ctx.from.first_name = undefined as any;
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: 'alice_user' }));
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: 'alice_user' }),
+        expect.anything(),
+      );
     });
 
     it('falls back to user ID when name and username missing', async () => {
@@ -264,7 +272,9 @@ describe('TelegramChannel', () => {
       ctx.from.username = undefined as any;
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: '42' }));
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: '42' }),
+        expect.anything(),
+      );
     });
 
     it('uses sender name as chat name for private chats', async () => {
@@ -275,6 +285,7 @@ describe('TelegramChannel', () => {
             folder: 'private',
             addedAt: '2024-01-01T00:00:00.000Z',
             isMain: true,
+            sessionId: '',
           },
         })),
       });
@@ -324,6 +335,7 @@ describe('TelegramChannel', () => {
         expect.objectContaining({
           timestamp: '2024-01-01T00:00:00.000Z',
         }),
+        expect.anything(),
       );
     });
   });
@@ -353,6 +365,7 @@ describe('TelegramChannel', () => {
           replyToMessageContent: 'Are you coming tonight?',
           replyToSenderName: 'Bob',
         }),
+        expect.anything(),
       );
     });
 
@@ -375,6 +388,7 @@ describe('TelegramChannel', () => {
         expect.objectContaining({
           replyToMessageContent: 'Check this out',
         }),
+        expect.anything(),
       );
     });
 
@@ -397,6 +411,7 @@ describe('TelegramChannel', () => {
           replyToMessageId: '60',
           replyToSenderName: 'Unknown',
         }),
+        expect.anything(),
       );
     });
 
@@ -414,6 +429,7 @@ describe('TelegramChannel', () => {
           replyToMessageContent: undefined,
           replyToSenderName: undefined,
         }),
+        expect.anything(),
       );
     });
   });
