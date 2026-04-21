@@ -1,18 +1,18 @@
 {
   "name": "nanoclaw",
   "version": "1.0.0",
-  "description": "Personal Claude assistant. Lightweight, secure, customizable.",
+  "description": "Claude Colleague: lightweight, secure, friendly.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
+    "prepare": "husky",
+
     "build": "npx tsc",
     "start": "node dist/index.js",
     "dev": "LOG_LEVEL=debug node --import tsx/esm src/core/index.ts",
     "typecheck": "npx tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\"",
-    "format:fix": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
-    "prepare": "husky",
     "setup": "npx tsx setup/index.ts",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",

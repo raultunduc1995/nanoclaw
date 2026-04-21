@@ -3,7 +3,7 @@
 # Usage: bash install.sh <bridge-secret>
 #
 # What it does:
-#   1. Copies bridge.js to ~/Library/NanoClaw/host-bridge/
+#   1. Copies bridge.cjs to ~/Library/NanoClaw/host-bridge/
 #   2. Creates a launchd plist that runs the bridge on login
 #   3. Starts the bridge immediately
 set -e
@@ -25,7 +25,7 @@ echo "  Install dir: $INSTALL_DIR"
 echo "  Port: $BRIDGE_PORT"
 echo "  Node: $NODE_BIN"
 mkdir -p "$INSTALL_DIR"
-cp "$(dirname "$0")/bridge.js" "$INSTALL_DIR/bridge.js"
+cp "$(dirname "$0")/bridge.cjs" "$INSTALL_DIR/bridge.cjs"
 # Write launchd plist
 cat > "$PLIST_PATH" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -36,7 +36,7 @@ cat > "$PLIST_PATH" << EOF
     <key>ProgramArguments</key>
     <array>
         <string>$NODE_BIN</string>
-        <string>$INSTALL_DIR/bridge.js</string>
+        <string>$INSTALL_DIR/bridge.cjs</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
