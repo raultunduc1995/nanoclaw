@@ -70,20 +70,15 @@ function resolveConfigTimezone(): string {
 }
 
 // Read config values from .env (falls back to process.env).
-const envConfig = readEnvFile(['CLAUDE_CODE_OAUTH_TOKEN', 'ASSISTANT_NAME', 'ENABLE_MAC_CONTROL', 'BRIDGE_SECRET', 'ENABLE_TELEGRAM', 'TELEGRAM_BOT_TOKEN', 'MAX_MESSAGES_PER_PROMPT']);
+const envConfig = readEnvFile(['CLAUDE_CODE_OAUTH_TOKEN', 'ENABLE_MAC_CONTROL', 'BRIDGE_SECRET', 'ENABLE_TELEGRAM', 'TELEGRAM_BOT_TOKEN']);
 
 export const CLAUDE_CODE_OAUTH_TOKEN = envConfig.CLAUDE_CODE_OAUTH_TOKEN || '';
-export const ASSISTANT_NAME = envConfig.ASSISTANT_NAME || 'Bee';
 export const ENABLE_MAC_CONTROL = envConfig.ENABLE_MAC_CONTROL === 'true';
 export const BRIDGE_SECRET = envConfig.BRIDGE_SECRET || 'default-bridge-secret';
 export const ENABLE_TELEGRAM = envConfig.ENABLE_TELEGRAM === 'true';
 export const TELEGRAM_BOT_TOKEN = envConfig.TELEGRAM_BOT_TOKEN || '';
-export const MAX_MESSAGES_PER_PROMPT = parseInt(envConfig.MAX_MESSAGES_PER_PROMPT || '10', 10);
-export const SCHEDULER_POLL_INTERVAL = 60000;
 
 const PROJECT_ROOT = process.cwd();
 export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
-export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
-export const IPC_POLL_INTERVAL = 1000;
 export const TIMEZONE = resolveConfigTimezone();

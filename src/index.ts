@@ -1,4 +1,4 @@
-import { logger } from '../logger.js';
+import { logger } from './core/utils/logger.js';
 import { main } from './main.js';
 
 // Guard: only run when executed directly, not when imported by tests

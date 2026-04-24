@@ -2,9 +2,9 @@ import https from 'https';
 
 import { Api, Bot, BotError } from 'grammy';
 
-import { logger } from '../../../logger.js';
+import { logger } from '../../core/utils/logger.js';
 import type { ChannelOpts, Channel } from '../types.js';
-import { TELEGRAM_BOT_TOKEN } from '../../../config.js';
+import { TELEGRAM_BOT_TOKEN } from '../../core/utils/config.js';
 
 export interface TelegramChannelOpts extends ChannelOpts {
   type: 'telegram';
@@ -112,7 +112,7 @@ export class TelegramChannel implements Channel {
           await sendTelegramMessage(this.bot.api, numericId, text.slice(i, i + MAX_LENGTH), options);
         }
       }
-      logger.info({ jid, length: text.length, threadId }, 'Telegram message sent');
+      logger.debug({ jid, length: text.length, threadId }, 'Telegram message sent');
     } catch (err) {
       logger.error({ jid, err }, 'Failed to send Telegram message');
     }

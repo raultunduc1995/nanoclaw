@@ -48,7 +48,6 @@ describe('getAllAsRecord', () => {
       name: 'Main',
       folder: 'telegram_main',
       added_at: '2024-01-01T00:00:00.000Z',
-      container_config: null,
       is_main: 1,
       session_id: '',
     });
@@ -68,7 +67,6 @@ describe('getAllAsRecord', () => {
       name: 'Dev Team',
       folder: 'telegram_dev-team',
       added_at: '2026-03-01T10:00:00.000Z',
-      container_config: JSON.stringify({ additionalMounts: [{ hostPath: '/tmp/test' }], timeout: 60000 }),
       is_main: 0,
       session_id: '',
     });
@@ -78,10 +76,6 @@ describe('getAllAsRecord', () => {
 
     expect(group.addedAt).toBe('2026-03-01T10:00:00.000Z');
     expect(group.isMain).toBe(false);
-    expect(group.containerConfig).toEqual({
-      additionalMounts: [{ hostPath: '/tmp/test' }],
-      timeout: 60000,
-    });
   });
 });
 
@@ -140,27 +134,6 @@ describe('register', () => {
 
     expect(repo.getByJid('tg:chat')!.name).toBe('Updated');
     expect(repo.getByJid('tg:chat')!.isMain).toBe(true);
-  });
-
-  it('persists containerConfig through round-trip', () => {
-    repo.register('tg:mounts', {
-      name: 'With Mounts',
-      folder: 'telegram_mounts',
-      addedAt: '2024-01-01T00:00:00.000Z',
-      isMain: false,
-      sessionId: '',
-      containerConfig: {
-        additionalMounts: [{ hostPath: '/home/user/projects', containerPath: 'projects', readonly: true }],
-        timeout: 120000,
-      },
-    });
-
-    const freshRepo = createGroupsRepository(db.groups);
-    const group = freshRepo.getByJid('tg:mounts')!;
-    expect(group.containerConfig).toEqual({
-      additionalMounts: [{ hostPath: '/home/user/projects', containerPath: 'projects', readonly: true }],
-      timeout: 120000,
-    });
   });
 
   it('throws on invalid folder name', () => {

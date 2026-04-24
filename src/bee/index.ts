@@ -1,8 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { Options, SDKUserMessage, startup } from '@anthropic-ai/claude-agent-sdk';
-import { CLAUDE_CODE_OAUTH_TOKEN, GROUPS_DIR, TIMEZONE } from '../config.js';
-import { logger } from '../logger.js';
+import { CLAUDE_CODE_OAUTH_TOKEN, GROUPS_DIR, TIMEZONE } from '../core/utils/config.js';
+import { logger } from '../core/utils/logger.js';
+import { delay } from '../core/utils/promise-utils.js';
 
 export interface AgentInput {
   sessionId: string;
@@ -63,7 +64,7 @@ const getMainOptions = (agentInput: AgentInput): Options => {
     env: sdkEnv,
     additionalDirectories: ['/'],
     allowDangerouslySkipPermissions: true,
-    settingSources: ['project'],
+    settingSources: ['project', 'local'],
     debug: true,
     mcpServers: {
       playwright: {
@@ -100,7 +101,7 @@ const getDefaultOptions = (agentInput: AgentInput): Options => {
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
     disallowedTools: ['Bash'],
-    settingSources: ['project'],
+    settingSources: ['project', 'local'],
     mcpServers: {},
   };
 };
@@ -132,6 +133,7 @@ export function runBee(
     logger.debug(`Starting prompt stream with initial prompt: ${input.prompt}`);
     yield { type: 'user', message: { role: 'user', content: input.prompt }, parent_tool_use_id: null };
     while (true) {
+      delay(10_000);
       await new Promise((r) => setTimeout(r, 10_000));
       if (queue.length === 0) break;
       while (queue.length > 0) {

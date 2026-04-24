@@ -1,11 +1,11 @@
 import path from 'path';
 import fs from 'fs';
 
-import { GROUPS_DIR } from '../../config.js';
-import { logger } from '../../logger.js';
+import { GROUPS_DIR } from '../utils/config.js';
+import { logger } from '../utils/logger.js';
 
 import type { GroupRow, GroupsLocalResource } from '../db/index.js';
-import { assertValidGroupFolder, resolveGroupFolderPath } from '../utils/index.js';
+import { assertValidGroupFolder, ensureWithinBase } from '../utils/index.js';
 
 // --- Types and interfaces ---
 
@@ -13,20 +13,8 @@ export interface RegisteredGroup {
   name: string;
   folder: string;
   addedAt: string;
-  containerConfig?: ContainerConfig;
   isMain: boolean;
   sessionId: string;
-}
-
-export interface ContainerConfig {
-  additionalMounts?: AdditionalMount[];
-  timeout?: number;
-}
-
-export interface AdditionalMount {
-  hostPath: string;
-  containerPath?: string;
-  readonly?: boolean;
 }
 
 // --- Repository interface and implementation ---
@@ -61,9 +49,6 @@ export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRep
       saveGroup(jid, group);
 
       createGroupDirectory(groupDir);
-      if (!group.isMain) {
-        copyGlobalMdToGroup(groupDir);
-      }
 
       logger.info({ jid, name: group.name, folder: group.folder }, 'Group registered');
     },
@@ -84,7 +69,6 @@ const toRegisteredGroup = (row: GroupRow): RegisteredGroup => ({
   name: row.name,
   folder: row.folder,
   addedAt: row.added_at,
-  containerConfig: row.container_config ? JSON.parse(row.container_config) : undefined,
   isMain: row.is_main === 1,
   sessionId: row.session_id,
 });
@@ -94,12 +78,20 @@ const toGroupRow = (jid: string, group: RegisteredGroup): GroupRow => ({
   name: group.name,
   folder: group.folder,
   added_at: group.addedAt,
-  container_config: group.containerConfig ? JSON.stringify(group.containerConfig) : null,
   is_main: group.isMain ? 1 : 0,
   session_id: group.sessionId,
 });
 
 // --- Utility functions for group directory management ---
+
+function resolveGroupFolderPath(folder: string): string {
+  assertValidGroupFolder(folder);
+
+  const groupPath = path.resolve(GROUPS_DIR, folder);
+  ensureWithinBase(GROUPS_DIR, groupPath);
+
+  return groupPath;
+}
 
 function createGroupDirectory(groupDir: string): void {
   fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });

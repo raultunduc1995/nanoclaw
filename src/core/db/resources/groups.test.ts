@@ -17,7 +17,6 @@ const row = (overrides?: Partial<GroupRow>): GroupRow => ({
   name: 'Test Group',
   folder: 'telegram_test-group',
   added_at: '2024-01-01T00:00:00.000Z',
-  container_config: null,
   is_main: 0,
   session_id: '',
   ...overrides,
@@ -54,17 +53,6 @@ describe('set and get', () => {
     groups.set('tg:100', row({ is_main: 0 }));
     expect(groups.get('tg:100')!.is_main).toBe(0);
   });
-
-  it('stores container_config as JSON string', () => {
-    const config = JSON.stringify({ additionalMounts: [{ hostPath: '/tmp' }], timeout: 60000 });
-    groups.set('tg:100', row({ container_config: config }));
-    expect(groups.get('tg:100')!.container_config).toBe(config);
-  });
-
-  it('stores null container_config', () => {
-    groups.set('tg:100', row({ container_config: null }));
-    expect(groups.get('tg:100')!.container_config).toBeNull();
-  });
 });
 
 describe('getAll', () => {
@@ -79,11 +67,9 @@ describe('getAll', () => {
   });
 
   it('returns raw GroupRow fields', () => {
-    groups.set('tg:100', row({ is_main: 1, container_config: '{"timeout":5000}' }));
+    groups.set('tg:100', row({ is_main: 1 }));
     const result = groups.getAll();
     expect(result[0].is_main).toBe(1);
-    expect(result[0].container_config).toBe('{"timeout":5000}');
-
     expect(result[0].added_at).toBe('2024-01-01T00:00:00.000Z');
   });
 });

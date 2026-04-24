@@ -2,18 +2,14 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 
-import { STORE_DIR } from '../../config.js';
-import { logger } from '../../logger.js';
+import { STORE_DIR } from '../utils/config.js';
+import { logger } from '../utils/logger.js';
 
 import { createSchema } from './schema.js';
-import { createTasksLocalResource } from './resources/tasks.js';
 import { createGroupsLocalResource } from './resources/groups.js';
-
-import type { TasksLocalResource } from './resources/tasks.js';
 import type { GroupsLocalResource } from './resources/groups.js';
 
 export interface LocalResource {
-  tasks: TasksLocalResource;
   groups: GroupsLocalResource;
   close(): void;
 }
@@ -22,7 +18,6 @@ function createLocalResource(db: Database.Database): LocalResource {
   createSchema(db);
 
   return {
-    tasks: createTasksLocalResource(db),
     groups: createGroupsLocalResource(db),
     close: () => db.close(),
   };

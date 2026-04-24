@@ -1,4 +1,4 @@
-import { RegisteredGroup } from '../repositories/index.js';
+import { RegisteredGroup } from '../core/repositories/index.js';
 
 export interface Message {
   id: string;
