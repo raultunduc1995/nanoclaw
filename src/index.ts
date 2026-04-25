@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { logger } from './core/utils/logger.js';
 import { main } from './main.js';
 
