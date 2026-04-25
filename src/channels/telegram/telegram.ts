@@ -2,9 +2,9 @@ import https from 'https';
 
 import { Api, Bot, BotError } from 'grammy';
 
-import { logger } from '../../core/utils/logger.js';
-import type { ChannelOpts, Channel } from '../types.js';
 import { TELEGRAM_BOT_TOKEN } from '../../core/utils/config.js';
+import { logger } from '../../core/utils/logger.js';
+import type { Channel, ChannelOpts } from '../types.js';
 
 export interface TelegramChannelOpts extends ChannelOpts {
   type: 'telegram';
@@ -32,8 +32,6 @@ export class TelegramChannel implements Channel {
       const chatType = ctx.chat.type;
       const chatName = chatType === 'private' ? ctx.from?.first_name || 'Private' : 'title' in ctx.chat ? ctx.chat.title || 'Unknown' : 'Unknown';
       ctx.reply(`Chat ID: \`tg:${chatId}\`\nName: ${chatName}\nType: ${chatType}`, { parse_mode: 'Markdown' });
-      // Auto-registration disabled — use the setup flow to register chats explicitly
-      // this.opts.registerNewGroup(`tg:${chatId}`, { name: chatName, folder: `telegram-${chatName}`, addedAt: new Date().toISOString(), isMain: false, sessionId: '' });
     });
 
     this.bot.on('message:text', async (ctx) => {
@@ -43,43 +41,47 @@ export class TelegramChannel implements Channel {
       }
 
       const chatJid = `tg:${ctx.chat.id}`;
-      const content = ctx.message.text;
+      const group = this.opts.getRegisteredGroups()[chatJid];
+      if (!group) {
+        logger.debug({ chatJid }, 'Message from unregistered Telegram chat');
+        return;
+      }
+
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
       const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || 'Unknown';
       const sender = ctx.from?.id.toString() || '';
       const msgId = ctx.message.message_id.toString();
+      const chatName = ctx.chat.type === 'private' ? senderName || 'Private' : 'title' in ctx.chat ? ctx.chat.title || chatJid : chatJid;
 
       const replyTo = ctx.message.reply_to_message;
       const replyToMessageId = replyTo?.message_id?.toString();
       const replyToMessageContent = replyTo?.text || replyTo?.caption;
       const replyToSenderName = replyTo ? replyTo.from?.first_name || replyTo.from?.username || replyTo.from?.id?.toString() || 'Unknown' : undefined;
 
-      // Determine chat name
-      const chatName = ctx.chat.type === 'private' ? senderName || 'Private' : 'title' in ctx.chat ? ctx.chat.title || chatJid : chatJid;
+      this.opts.onInboundMessage({ kind: 'text', id: msgId, chatJid, sender, senderName, content: ctx.message.text, timestamp, replyToMessageId, replyToMessageContent, replyToSenderName }, group);
+      logger.info({ chatJid, chatName, sender: senderName }, 'Telegram message received');
+    });
 
-      // Only deliver full message for registered groups
+    this.bot.on('message:photo', async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
       const group = this.opts.getRegisteredGroups()[chatJid];
       if (!group) {
-        logger.debug({ chatJid, chatName }, 'Message from unregistered Telegram chat');
+        logger.debug({ chatJid }, 'Message from unregistered Telegram chat');
         return;
       }
 
-      // Deliver message — startMessageLoop() will pick it up
-      this.opts.onInboundMessage(
-        {
-          id: msgId,
-          chatJid,
-          sender,
-          senderName,
-          content,
-          timestamp,
-          replyToMessageId,
-          replyToMessageContent,
-          replyToSenderName,
-        },
-        group,
-      );
-      logger.info({ chatJid, chatName, sender: senderName }, 'Telegram message stored');
+      const timestamp = new Date(ctx.message.date * 1000).toISOString();
+      const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || 'Unknown';
+      const sender = ctx.from?.id.toString() || '';
+      const msgId = ctx.message.message_id.toString();
+      const content = ctx.message.caption || '';
+
+      const photos = ctx.message.photo;
+      const largest = photos[photos.length - 1];
+      const imageBase64 = await downloadTelegramFileAsBase64(ctx.api, largest.file_id);
+
+      this.opts.onInboundMessage({ kind: 'image', id: msgId, chatJid, sender, senderName, content, timestamp, imageBase64, imageMimeType: 'image/jpeg' }, group);
+      logger.info({ chatJid, sender: senderName }, 'Telegram photo received');
     });
 
     // Handle errors gracefully
@@ -137,6 +139,32 @@ export class TelegramChannel implements Channel {
   }
 }
 
+// --- Helpers ---
+
+async function downloadTelegramFileAsBase64(api: Api, fileId: string): Promise<string | undefined> {
+  try {
+    const file = await api.getFile(fileId);
+    if (!file.file_path) return undefined;
+
+    const url = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+    const buffer = await new Promise<Buffer>((resolve, reject) => {
+      https
+        .get(url, (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => resolve(Buffer.concat(chunks)));
+          res.on('error', reject);
+        })
+        .on('error', reject);
+    });
+
+    return buffer.toString('base64');
+  } catch (err) {
+    logger.error({ fileId, err }, 'Failed to download Telegram file');
+    return undefined;
+  }
+}
+
 /**
  * Send a message with Telegram Markdown parse mode, falling back to plain text.
  * Claude's output naturally matches Telegram's Markdown v1 format:
@@ -144,12 +172,8 @@ export class TelegramChannel implements Channel {
  */
 async function sendTelegramMessage(api: { sendMessage: Api['sendMessage'] }, chatId: string | number, text: string, options: { message_thread_id?: number } = {}): Promise<void> {
   try {
-    await api.sendMessage(chatId, text, {
-      ...options,
-      parse_mode: 'Markdown',
-    });
+    await api.sendMessage(chatId, text, { ...options, parse_mode: 'Markdown' });
   } catch (err) {
-    // Fallback: send as plain text if Markdown parsing fails
     logger.debug({ err }, 'Markdown send failed, falling back to plain text');
     await api.sendMessage(chatId, text, options);
   }

@@ -1,7 +1,7 @@
 import { TIMEZONE } from './config.js';
-import { Message } from '../../channels/types.js';
+import { InboundMessage } from '../../channels/types.js';
 
-export const formatMessages = (messages: Message[], timezone: string = TIMEZONE): string => {
+export const formatMessages = (messages: InboundMessage[], timezone: string = TIMEZONE): string => {
   const lines = messages.map((m) => {
     const displayTime = formatLocalTime(m.timestamp, timezone);
     const replyAttr = m.replyToMessageId ? ` reply_to="${escapeXml(m.replyToMessageId)}"` : '';

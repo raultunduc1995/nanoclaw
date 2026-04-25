@@ -4,17 +4,42 @@ import { Options, SDKUserMessage, startup } from '@anthropic-ai/claude-agent-sdk
 import { CLAUDE_CODE_OAUTH_TOKEN, GROUPS_DIR, TIMEZONE } from '../core/utils/config.js';
 import { logger } from '../core/utils/logger.js';
 import { delay } from '../core/utils/promise-utils.js';
+import { ImageMimeType } from '../core/common/index.js';
 
-export interface AgentInput {
+interface AgentInputBase {
   sessionId: string;
-  prompt: string;
   groupFolder: string;
   chatJid: string;
   isMain: boolean;
-  isScheduledTask?: boolean;
-  assistantName?: string;
-  script?: string;
 }
+
+interface AgentTextInput extends AgentInputBase {
+  kind: 'text';
+  prompt: string;
+}
+
+interface AgentImageInput extends AgentInputBase {
+  kind: 'image';
+  prompt: string;
+  imageBase64: string;
+  imageMimeType: ImageMimeType;
+}
+
+type AgentInput = AgentTextInput | AgentImageInput;
+
+interface QueueTextInput {
+  kind: 'text';
+  prompt: string;
+}
+
+interface QueueImageInput {
+  kind: 'image';
+  prompt: string;
+  imageBase64: string;
+  imageMimeType: ImageMimeType;
+}
+
+type QueueInput = QueueTextInput | QueueImageInput;
 
 // --- Agent-SDK setup start ---
 
@@ -48,7 +73,7 @@ const getMainOptions = (agentInput: AgentInput): Options => {
   const sdkEnv: Record<string, string | undefined> = {
     ...process.env,
     CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_CODE_OAUTH_TOKEN || '',
-    CLAUDE_CODE_AUTO_COMPACT_WINDOW: '500_000',
+    CLAUDE_CODE_AUTO_COMPACT_WINDOW: '800000',
     CLAUDE_CODE_RESUME_INTERRUPTED_TURN: '1',
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
@@ -67,13 +92,14 @@ const getMainOptions = (agentInput: AgentInput): Options => {
     cwd: groupDir,
     env: sdkEnv,
     additionalDirectories: ['/'],
+    permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
     settingSources: ['project', 'local'],
     debug: true,
     mcpServers: {
       playwright: {
         command: 'node',
-        args: [path.join(GROUPS_DIR, '..', 'node_modules/@playwright/mcp/cli.js')],
+        args: [path.join(GROUPS_DIR, '..', 'node_modules/@playwright/mcp/cli.js'), '--cdp-endpoint', 'http://localhost:9222'],
       },
     },
   };
@@ -106,6 +132,7 @@ const getDefaultOptions = (agentInput: AgentInput): Options => {
     allowDangerouslySkipPermissions: true,
     disallowedTools: ['Bash'],
     settingSources: ['project', 'local'],
+    debug: true,
     mcpServers: {},
   };
 };
@@ -117,10 +144,10 @@ export function runBee(
   onOutput: (result: { sessionId: string; message: string }) => Promise<void>,
   onError: (error: { sessionId: string; message: string }) => Promise<void>,
   onInvalidSession: () => void,
-): { pipe: (prompt: string) => void; done: Promise<void> } {
-  logger.debug(`Received input for the agent to process: ${input}`);
+): { pipe: (input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => void; done: Promise<void> } {
+  logger.debug(`[INIT] Received input for the agent to process: ${JSON.stringify(input)}`);
 
-  const queue: string[] = [];
+  const queue: QueueInput[] = [];
 
   const logLines: string[] = [];
   const logUser = (prompt: string) => logLines.push(`[USER] ${prompt}`);
@@ -128,22 +155,51 @@ export function runBee(
   const logError = (line: string) => logLines.push(`[ERROR] ${line}`);
   const logResult = (line: string) => logLines.push(`[RESULT] ${line}`);
 
-  function pipe(prompt: string) {
-    logUser(prompt);
-    queue.push(prompt);
+  function pipe(input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) {
+    logUser(input.prompt);
+    if ('imageBase64' in input) {
+      queue.push({ kind: 'image', ...input });
+    } else {
+      queue.push({ kind: 'text', ...input });
+    }
   }
 
   async function* promptStream(): AsyncGenerator<SDKUserMessage> {
-    logger.debug(`Starting prompt stream with initial prompt: ${input.prompt}`);
-    yield { type: 'user', message: { role: 'user', content: input.prompt }, parent_tool_use_id: null };
+    if (input.kind === 'image') {
+      yield {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: input.prompt },
+            { type: 'image', source: { type: 'base64', media_type: input.imageMimeType, data: input.imageBase64 } },
+          ],
+        },
+        parent_tool_use_id: null,
+      };
+    } else if (input.kind === 'text') {
+      yield { type: 'user', message: { role: 'user', content: input.prompt }, parent_tool_use_id: null };
+    }
     while (true) {
-      delay(10_000);
-      await new Promise((r) => setTimeout(r, 10_000));
+      delay(8_000);
       if (queue.length === 0) break;
       while (queue.length > 0) {
-        const prompt = queue.shift()!;
-        logger.debug(`Piping prompt to agent: ${prompt}`);
-        yield { type: 'user', message: { role: 'user', content: prompt }, parent_tool_use_id: null };
+        const queueInput = queue.shift()!;
+        if (queueInput.kind === 'image') {
+          yield {
+            type: 'user',
+            message: {
+              role: 'user',
+              content: [
+                { type: 'text', text: queueInput.prompt },
+                { type: 'image', source: { type: 'base64', media_type: queueInput.imageMimeType, data: queueInput.imageBase64 } },
+              ],
+            },
+            parent_tool_use_id: null,
+          };
+        } else if (queueInput.kind === 'text') {
+          yield { type: 'user', message: { role: 'user', content: queueInput.prompt }, parent_tool_use_id: null };
+        }
       }
     }
   }
@@ -152,8 +208,6 @@ export function runBee(
     const startTime = Date.now();
     const logsDir = path.join(GROUPS_DIR, input.groupFolder, 'logs');
     fs.mkdirSync(logsDir, { recursive: true });
-
-    logUser(input.prompt);
 
     try {
       const options = input.isMain ? getMainOptions(input) : getDefaultOptions(input);

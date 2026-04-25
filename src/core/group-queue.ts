@@ -1,50 +1,75 @@
 import { logger } from './utils/logger.js';
 import { RegisteredGroup } from './repositories/groups-repository.js';
+import { ImageMimeType } from './common/index.js';
 
-interface GroupData {
+interface GroupDataBase {
   jid: string;
   group: RegisteredGroup;
+}
+
+interface GroupTextData extends GroupDataBase {
+  kind: 'text';
   prompt: string;
 }
 
+interface GroupImageData extends GroupDataBase {
+  kind: 'image';
+  prompt: string;
+  imageBase64?: string;
+  imageMimeType: ImageMimeType;
+}
+
+type GroupData = GroupTextData | GroupImageData;
+
 interface GroupQueueDeps {
-  runAgent: (jid: string, group: RegisteredGroup, prompt: string) => { pipe: (prompt: string) => void; done: Promise<void> };
+  runAgent: ({ jid, group, input }: { jid: string; group: RegisteredGroup; input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType } }) => {
+    pipe: (input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => void;
+    done: Promise<void>;
+  };
 }
 
 export class GroupQueue {
   private queue: GroupData[] = [];
   private shuttingDown = false;
   private deps: GroupQueueDeps;
-  private pipe?: (prompt: string) => void = undefined;
+  private pipe?: (input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => void = undefined;
   private runningJid?: string = undefined;
 
   constructor(deps: GroupQueueDeps) {
     this.deps = deps;
   }
 
-  deliver(groupJid: string, group: RegisteredGroup, prompt: string): boolean {
+  deliver(data: GroupData): boolean {
     if (this.shuttingDown) return false;
 
     if (this.runningJid !== undefined) {
-      if (this.pipe && this.runningJid === groupJid) {
-        this.pipe(prompt);
-        logger.debug({ groupJid }, 'Piped message to running agent');
+      if (this.pipe && this.runningJid === data.jid) {
+        if (data.kind === 'image') {
+          this.pipe({ prompt: data.prompt, imageBase64: data.imageBase64!, imageMimeType: data.imageMimeType });
+        } else if (data.kind === 'text') {
+          this.pipe({ prompt: data.prompt });
+        }
+        logger.debug({ data }, 'Piped message to running agent');
         return true;
       }
 
-      this.queue.push({ jid: groupJid, group, prompt });
-      logger.debug({ groupJid, queueLength: this.queue.length }, 'Agent busy, message queued');
+      this.queue.push(data);
+      logger.debug({ data, queueLength: this.queue.length }, 'Agent busy, message queued');
       return false;
     }
 
-    this.runningJid = groupJid;
-    logger.debug({ groupJid }, 'Spawning agent for group');
+    this.runningJid = data.jid;
+    logger.debug({ data }, 'Spawning agent for group');
 
-    const channel = this.deps.runAgent(groupJid, group, prompt);
+    const channel = this.deps.runAgent({
+      jid: data.jid,
+      group: data.group,
+      input: data.kind === 'image' ? { prompt: data.prompt, imageBase64: data.imageBase64!, imageMimeType: data.imageMimeType } : { prompt: data.prompt },
+    });
     this.pipe = channel.pipe;
     channel.done
       .catch((err) => {
-        logger.error({ groupJid, err }, 'Error in runAgent');
+        logger.error({ data, err }, 'Error in runAgent');
       })
       .finally(() => {
         this.pipe = undefined;
@@ -52,7 +77,7 @@ export class GroupQueue {
         if (this.queue.length > 0) {
           const next = this.queue.shift()!;
           logger.debug({ groupJid: next.jid, queueLength: this.queue.length }, 'Dequeuing next message');
-          this.deliver(next.jid, next.group, next.prompt);
+          this.deliver(next);
         }
       });
 

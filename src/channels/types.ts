@@ -1,16 +1,30 @@
+import { ImageMimeType } from '../core/common/index.js';
 import { RegisteredGroup } from '../core/repositories/index.js';
 
-export interface Message {
+interface MessageBase {
   id: string;
   chatJid: string;
   sender: string;
   senderName: string;
-  content: string;
   timestamp: string;
   replyToMessageId?: string;
   replyToMessageContent?: string;
   replyToSenderName?: string;
 }
+
+interface TextMessage extends MessageBase {
+  kind: 'text';
+  content: string;
+}
+
+interface ImageMessage extends MessageBase {
+  kind: 'image';
+  content: string;
+  imageBase64?: string;
+  imageMimeType: ImageMimeType;
+}
+
+export type InboundMessage = TextMessage | ImageMessage;
 
 export interface ChannelOpts {
   type: 'telegram';
@@ -19,7 +33,7 @@ export interface ChannelOpts {
    *
    * @param message
    */
-  onInboundMessage: (message: Message, group: RegisteredGroup) => void;
+  onInboundMessage: (message: InboundMessage, group: RegisteredGroup) => void;
 
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
   registerNewGroup: (jid: string, group: RegisteredGroup) => void;

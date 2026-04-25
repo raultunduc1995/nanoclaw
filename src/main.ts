@@ -18,9 +18,13 @@ const initRepos = () => {
 const initMain = () => {
   initRepos();
   groupQueue = new GroupQueue({
-    runAgent: (jid, group, prompt) => {
+    runAgent: ({ jid, group, input }) => {
+      const beeAgentInput =
+        'imageBase64' in input && input.imageBase64 && input.imageMimeType
+          ? { kind: 'image' as const, groupFolder: group.folder, chatJid: jid, isMain: group.isMain, sessionId: group.sessionId, ...input }
+          : { kind: 'text' as const, groupFolder: group.folder, chatJid: jid, isMain: group.isMain, sessionId: group.sessionId, ...input };
       return runBee(
-        { prompt, groupFolder: group.folder, chatJid: jid, isMain: group.isMain, sessionId: group.sessionId },
+        beeAgentInput,
         async (output) => {
           if (output.sessionId.length > 0) {
             logger.debug({ jid, group, sessionId: output.sessionId }, 'Updating session ID for group');
@@ -65,7 +69,18 @@ const registerChannels = async () => {
     onInboundMessage: (message, group) => {
       const prompt = formatMessages([message]);
       channelsRegistry.findChannel(message.chatJid)?.setTyping(message.chatJid);
-      groupQueue.deliver(message.chatJid, group, prompt);
+      if (message.kind === 'text') {
+        groupQueue.deliver({ kind: 'text', jid: message.chatJid, group, prompt });
+      } else if (message.kind === 'image') {
+        groupQueue.deliver({
+          kind: 'image',
+          jid: message.chatJid,
+          group,
+          prompt,
+          imageBase64: message.imageBase64,
+          imageMimeType: message.imageMimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+        });
+      }
     },
     getRegisteredGroups: () => groupsRepo.getAllAsRecord(),
     registerNewGroup: (jid, group) => groupsRepo.register(jid, group),
