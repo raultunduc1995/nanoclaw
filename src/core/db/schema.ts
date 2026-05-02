@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from "better-sqlite3";
 
 export const createSchema = (database: Database.Database): void => {
   database.exec(`

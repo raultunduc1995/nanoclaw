@@ -1,15 +1,15 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // --- Mocks ---
 
 // Mock registry (registerChannel runs at import time)
-vi.mock('../registry.js', () => ({ registerChannel: vi.fn() }));
+vi.mock("../registry.js", () => ({ registerChannel: vi.fn() }));
 
 // Mock env reader (used by the factory, not needed in unit tests)
-vi.mock('../../../env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
+vi.mock("../../../env.js", () => ({ readEnvFile: vi.fn(() => ({})) }));
 
 // Mock logger
-vi.mock('../../../logger.js', () => ({
+vi.mock("../../../logger.js", () => ({
   logger: {
     debug: vi.fn(),
     info: vi.fn(),
@@ -24,7 +24,7 @@ type Handler = (...args: any[]) => any;
 
 const botRef = vi.hoisted(() => ({ current: null as any }));
 
-vi.mock('grammy', () => ({
+vi.mock("grammy", () => ({
   Bot: class MockBot {
     token: string;
     commandHandlers = new Map<string, Handler>();
@@ -34,7 +34,7 @@ vi.mock('grammy', () => ({
     api = {
       sendMessage: vi.fn().mockResolvedValue(undefined),
       sendChatAction: vi.fn().mockResolvedValue(undefined),
-      getFile: vi.fn().mockResolvedValue({ file_path: 'photos/file_0.jpg' }),
+      getFile: vi.fn().mockResolvedValue({ file_path: "photos/file_0.jpg" }),
     };
 
     constructor(token: string) {
@@ -57,29 +57,29 @@ vi.mock('grammy', () => ({
     }
 
     start(opts: { onStart: (botInfo: any) => void }) {
-      opts.onStart({ username: 'andy_ai_bot', id: 12345 });
+      opts.onStart({ username: "andy_ai_bot", id: 12345 });
     }
 
     stop() {}
   },
 }));
 
-import { TelegramChannel, TelegramChannelOpts } from './telegram.js';
+import { TelegramChannel, TelegramChannelOpts } from "./telegram.js";
 
 // --- Test helpers ---
 
 function createTestOpts(overrides?: Partial<TelegramChannelOpts>): TelegramChannelOpts {
   return {
-    type: 'telegram',
+    type: "telegram",
     onInboundMessage: vi.fn(),
     registerNewGroup: vi.fn(),
     getRegisteredGroups: vi.fn(() => ({
-      'tg:100200300': {
-        name: 'Test Group',
-        folder: 'test-group',
-        addedAt: '2024-01-01T00:00:00.000Z',
+      "tg:100200300": {
+        name: "Test Group",
+        folder: "test-group",
+        addedAt: "2024-01-01T00:00:00.000Z",
         isMain: false,
-        sessionId: '',
+        sessionId: "",
       },
     })),
     ...overrides,
@@ -100,17 +100,17 @@ function createTextCtx(overrides: {
   reply_to_message?: any;
 }) {
   const chatId = overrides.chatId ?? 100200300;
-  const chatType = overrides.chatType ?? 'group';
+  const chatType = overrides.chatType ?? "group";
   return {
     chat: {
       id: chatId,
       type: chatType,
-      title: overrides.chatTitle ?? 'Test Group',
+      title: overrides.chatTitle ?? "Test Group",
     },
     from: {
       id: overrides.fromId ?? 99001,
-      first_name: overrides.firstName ?? 'Alice',
-      username: overrides.username ?? 'alice_user',
+      first_name: overrides.firstName ?? "Alice",
+      username: overrides.username ?? "alice_user",
     },
     message: {
       text: overrides.text,
@@ -119,7 +119,7 @@ function createTextCtx(overrides: {
       entities: overrides.entities ?? [],
       reply_to_message: overrides.reply_to_message,
     },
-    me: { username: 'andy_ai_bot' },
+    me: { username: "andy_ai_bot" },
     reply: vi.fn(),
   };
 }
@@ -129,38 +129,38 @@ function currentBot() {
 }
 
 async function triggerTextMessage(ctx: ReturnType<typeof createTextCtx>) {
-  const handlers = currentBot().filterHandlers.get('message:text') || [];
+  const handlers = currentBot().filterHandlers.get("message:text") || [];
   for (const h of handlers) await h(ctx);
 }
 
 // --- Tests ---
 
-describe('TelegramChannel', () => {
+describe("TelegramChannel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   // --- Connection lifecycle ---
 
-  describe('connection lifecycle', () => {
-    it('resolves connect() when bot starts', async () => {
+  describe("connection lifecycle", () => {
+    it("resolves connect() when bot starts", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
 
       await expect(channel.connect()).resolves.toBeUndefined();
     });
 
-    it('registers command and message handlers on connect', async () => {
+    it("registers command and message handlers on connect", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
 
       await channel.connect();
 
-      expect(currentBot().commandHandlers.has('chatid')).toBe(true);
-      expect(currentBot().filterHandlers.has('message:text')).toBe(true);
+      expect(currentBot().commandHandlers.has("chatid")).toBe(true);
+      expect(currentBot().filterHandlers.has("message:text")).toBe(true);
     });
 
-    it('registers error handler on connect', async () => {
+    it("registers error handler on connect", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
 
@@ -169,7 +169,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().errorHandler).not.toBeNull();
     });
 
-    it('disconnects cleanly', async () => {
+    it("disconnects cleanly", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
 
@@ -180,100 +180,100 @@ describe('TelegramChannel', () => {
 
   // --- Text message handling ---
 
-  describe('text message handling', () => {
-    it('delivers message for registered group', async () => {
+  describe("text message handling", () => {
+    it("delivers message for registered group", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      const ctx = createTextCtx({ text: 'Hello everyone' });
+      const ctx = createTextCtx({ text: "Hello everyone" });
       await triggerTextMessage(ctx);
 
       expect(opts.onInboundMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: '1',
-          chatJid: 'tg:100200300',
-          sender: '99001',
-          senderName: 'Alice',
-          content: 'Hello everyone',
+          id: "1",
+          chatJid: "tg:100200300",
+          sender: "99001",
+          senderName: "Alice",
+          content: "Hello everyone",
         }),
         expect.anything(),
       );
     });
 
-    it('does not deliver messages from unregistered chats', async () => {
+    it("does not deliver messages from unregistered chats", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      const ctx = createTextCtx({ chatId: 999999, text: 'Unknown chat' });
+      const ctx = createTextCtx({ chatId: 999999, text: "Unknown chat" });
       await triggerTextMessage(ctx);
 
       expect(opts.onInboundMessage).not.toHaveBeenCalled();
     });
 
-    it('skips bot commands (/chatid) but passes other / messages through', async () => {
+    it("skips bot commands (/chatid) but passes other / messages through", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
       // Bot commands should be skipped
-      const ctx1 = createTextCtx({ text: '/chatid' });
+      const ctx1 = createTextCtx({ text: "/chatid" });
       await triggerTextMessage(ctx1);
       expect(opts.onInboundMessage).not.toHaveBeenCalled();
 
       // Non-bot /commands should flow through
-      const ctx2 = createTextCtx({ text: '/remote-control' });
+      const ctx2 = createTextCtx({ text: "/remote-control" });
       await triggerTextMessage(ctx2);
       expect(opts.onInboundMessage).toHaveBeenCalledTimes(1);
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ content: '/remote-control' }), expect.anything());
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ content: "/remote-control" }), expect.anything());
     });
 
-    it('extracts sender name from first_name', async () => {
+    it("extracts sender name from first_name", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      const ctx = createTextCtx({ text: 'Hi', firstName: 'Bob' });
+      const ctx = createTextCtx({ text: "Hi", firstName: "Bob" });
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: 'Bob' }), expect.anything());
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: "Bob" }), expect.anything());
     });
 
-    it('falls back to username when first_name missing', async () => {
+    it("falls back to username when first_name missing", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      const ctx = createTextCtx({ text: 'Hi' });
+      const ctx = createTextCtx({ text: "Hi" });
       ctx.from.first_name = undefined as any;
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: 'alice_user' }), expect.anything());
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: "alice_user" }), expect.anything());
     });
 
-    it('falls back to user ID when name and username missing', async () => {
+    it("falls back to user ID when name and username missing", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      const ctx = createTextCtx({ text: 'Hi', fromId: 42 });
+      const ctx = createTextCtx({ text: "Hi", fromId: 42 });
       ctx.from.first_name = undefined as any;
       ctx.from.username = undefined as any;
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: '42' }), expect.anything());
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: "42" }), expect.anything());
     });
 
-    it('uses sender name as chat name for private chats', async () => {
+    it("uses sender name as chat name for private chats", async () => {
       const opts = createTestOpts({
         getRegisteredGroups: vi.fn(() => ({
-          'tg:100200300': {
-            name: 'Private',
-            folder: 'private',
-            addedAt: '2024-01-01T00:00:00.000Z',
+          "tg:100200300": {
+            name: "Private",
+            folder: "private",
+            addedAt: "2024-01-01T00:00:00.000Z",
             isMain: true,
-            sessionId: '',
+            sessionId: "",
           },
         })),
       });
@@ -281,42 +281,42 @@ describe('TelegramChannel', () => {
       await channel.connect();
 
       const ctx = createTextCtx({
-        text: 'Hello',
-        chatType: 'private',
-        firstName: 'Alice',
+        text: "Hello",
+        chatType: "private",
+        firstName: "Alice",
       });
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ chatJid: 'tg:100200300' }), expect.anything());
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ chatJid: "tg:100200300" }), expect.anything());
     });
 
-    it('uses chat title as name for group chats', async () => {
+    it("uses chat title as name for group chats", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
       const ctx = createTextCtx({
-        text: 'Hello',
-        chatType: 'supergroup',
-        chatTitle: 'Project Team',
+        text: "Hello",
+        chatType: "supergroup",
+        chatTitle: "Project Team",
       });
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ chatJid: 'tg:100200300' }), expect.anything());
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ chatJid: "tg:100200300" }), expect.anything());
     });
 
-    it('converts message.date to ISO timestamp', async () => {
+    it("converts message.date to ISO timestamp", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
       const unixTime = 1704067200; // 2024-01-01T00:00:00.000Z
-      const ctx = createTextCtx({ text: 'Hello', date: unixTime });
+      const ctx = createTextCtx({ text: "Hello", date: unixTime });
       await triggerTextMessage(ctx);
 
       expect(opts.onInboundMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          timestamp: '2024-01-01T00:00:00.000Z',
+          timestamp: "2024-01-01T00:00:00.000Z",
         }),
         expect.anything(),
       );
@@ -325,85 +325,85 @@ describe('TelegramChannel', () => {
 
   // --- Reply context ---
 
-  describe('reply context', () => {
-    it('extracts reply_to fields when replying to a text message', async () => {
+  describe("reply context", () => {
+    it("extracts reply_to fields when replying to a text message", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
       const ctx = createTextCtx({
-        text: 'Yes, on my way!',
+        text: "Yes, on my way!",
         reply_to_message: {
           message_id: 42,
-          text: 'Are you coming tonight?',
-          from: { id: 777, first_name: 'Bob', username: 'bob_user' },
+          text: "Are you coming tonight?",
+          from: { id: 777, first_name: "Bob", username: "bob_user" },
         },
       });
       await triggerTextMessage(ctx);
 
       expect(opts.onInboundMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          content: 'Yes, on my way!',
-          replyToMessageId: '42',
-          replyToMessageContent: 'Are you coming tonight?',
-          replyToSenderName: 'Bob',
+          content: "Yes, on my way!",
+          replyToMessageId: "42",
+          replyToMessageContent: "Are you coming tonight?",
+          replyToSenderName: "Bob",
         }),
         expect.anything(),
       );
     });
 
-    it('uses caption when reply has no text (media reply)', async () => {
+    it("uses caption when reply has no text (media reply)", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
       const ctx = createTextCtx({
-        text: 'Nice photo!',
+        text: "Nice photo!",
         reply_to_message: {
           message_id: 50,
-          caption: 'Check this out',
-          from: { id: 888, first_name: 'Carol' },
+          caption: "Check this out",
+          from: { id: 888, first_name: "Carol" },
         },
       });
       await triggerTextMessage(ctx);
 
       expect(opts.onInboundMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          replyToMessageContent: 'Check this out',
+          replyToMessageContent: "Check this out",
         }),
         expect.anything(),
       );
     });
 
-    it('falls back to Unknown when reply sender has no from', async () => {
+    it("falls back to Unknown when reply sender has no from", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
       const ctx = createTextCtx({
-        text: 'Interesting',
+        text: "Interesting",
         reply_to_message: {
           message_id: 60,
-          text: 'Channel post',
+          text: "Channel post",
         },
       });
       await triggerTextMessage(ctx);
 
       expect(opts.onInboundMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          replyToMessageId: '60',
-          replyToSenderName: 'Unknown',
+          replyToMessageId: "60",
+          replyToSenderName: "Unknown",
         }),
         expect.anything(),
       );
     });
 
-    it('does not set reply fields when no reply_to_message', async () => {
+    it("does not set reply fields when no reply_to_message", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      const ctx = createTextCtx({ text: 'Just a normal message' });
+      const ctx = createTextCtx({ text: "Just a normal message" });
       await triggerTextMessage(ctx);
 
       expect(opts.onInboundMessage).toHaveBeenCalledWith(
@@ -419,68 +419,68 @@ describe('TelegramChannel', () => {
 
   // --- sendMessage ---
 
-  describe('sendMessage', () => {
-    it('sends message via bot API', async () => {
+  describe("sendMessage", () => {
+    it("sends message via bot API", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      await channel.sendMessage('tg:100200300', 'Hello');
+      await channel.sendMessage("tg:100200300", "Hello");
 
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith('100200300', 'Hello', { parse_mode: 'Markdown' });
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith("100200300", "Hello", { parse_mode: "Markdown" });
     });
 
-    it('strips tg: prefix from JID', async () => {
+    it("strips tg: prefix from JID", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      await channel.sendMessage('tg:-1001234567890', 'Group message');
+      await channel.sendMessage("tg:-1001234567890", "Group message");
 
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith('-1001234567890', 'Group message', { parse_mode: 'Markdown' });
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith("-1001234567890", "Group message", { parse_mode: "Markdown" });
     });
 
-    it('splits messages exceeding 4096 characters', async () => {
+    it("splits messages exceeding 4096 characters", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      const longText = 'x'.repeat(5000);
-      await channel.sendMessage('tg:100200300', longText);
+      const longText = "x".repeat(5000);
+      await channel.sendMessage("tg:100200300", longText);
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(1, '100200300', 'x'.repeat(4096), { parse_mode: 'Markdown' });
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(2, '100200300', 'x'.repeat(904), { parse_mode: 'Markdown' });
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(1, "100200300", "x".repeat(4096), { parse_mode: "Markdown" });
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(2, "100200300", "x".repeat(904), { parse_mode: "Markdown" });
     });
 
-    it('sends exactly one message at 4096 characters', async () => {
+    it("sends exactly one message at 4096 characters", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      const exactText = 'y'.repeat(4096);
-      await channel.sendMessage('tg:100200300', exactText);
+      const exactText = "y".repeat(4096);
+      await channel.sendMessage("tg:100200300", exactText);
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
     });
 
-    it('handles send failure gracefully', async () => {
+    it("handles send failure gracefully", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      currentBot().api.sendMessage.mockRejectedValueOnce(new Error('Network error'));
+      currentBot().api.sendMessage.mockRejectedValueOnce(new Error("Network error"));
 
       // Should not throw
-      await expect(channel.sendMessage('tg:100200300', 'Will fail')).resolves.toBeUndefined();
+      await expect(channel.sendMessage("tg:100200300", "Will fail")).resolves.toBeUndefined();
     });
 
-    it('does nothing when bot is not initialized', async () => {
+    it("does nothing when bot is not initialized", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
 
       // Don't connect — bot is null
-      await channel.sendMessage('tg:100200300', 'No bot');
+      await channel.sendMessage("tg:100200300", "No bot");
 
       // No error, no API call
     });
@@ -488,111 +488,111 @@ describe('TelegramChannel', () => {
 
   // --- ownsJid ---
 
-  describe('ownsJid', () => {
-    it('owns tg: JIDs', () => {
+  describe("ownsJid", () => {
+    it("owns tg: JIDs", () => {
       const channel = new TelegramChannel(createTestOpts());
-      expect(channel.ownsJid('tg:123456')).toBe(true);
+      expect(channel.ownsJid("tg:123456")).toBe(true);
     });
 
-    it('owns tg: JIDs with negative IDs (groups)', () => {
+    it("owns tg: JIDs with negative IDs (groups)", () => {
       const channel = new TelegramChannel(createTestOpts());
-      expect(channel.ownsJid('tg:-1001234567890')).toBe(true);
+      expect(channel.ownsJid("tg:-1001234567890")).toBe(true);
     });
 
-    it('does not own non-Telegram JIDs', () => {
+    it("does not own non-Telegram JIDs", () => {
       const channel = new TelegramChannel(createTestOpts());
-      expect(channel.ownsJid('dc:12345')).toBe(false);
+      expect(channel.ownsJid("dc:12345")).toBe(false);
     });
 
-    it('does not own non-Telegram DM JIDs', () => {
+    it("does not own non-Telegram DM JIDs", () => {
       const channel = new TelegramChannel(createTestOpts());
-      expect(channel.ownsJid('dc:12345')).toBe(false);
+      expect(channel.ownsJid("dc:12345")).toBe(false);
     });
 
-    it('does not own unknown JID formats', () => {
+    it("does not own unknown JID formats", () => {
       const channel = new TelegramChannel(createTestOpts());
-      expect(channel.ownsJid('random-string')).toBe(false);
+      expect(channel.ownsJid("random-string")).toBe(false);
     });
   });
 
   // --- setTyping ---
 
-  describe('setTyping', () => {
-    it('sends typing action when isTyping is true', async () => {
+  describe("setTyping", () => {
+    it("sends typing action when isTyping is true", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      await channel.setTyping('tg:100200300');
+      await channel.setTyping("tg:100200300");
 
-      expect(currentBot().api.sendChatAction).toHaveBeenCalledWith('100200300', 'typing');
+      expect(currentBot().api.sendChatAction).toHaveBeenCalledWith("100200300", "typing");
     });
 
-    it('does nothing when bot is not initialized', async () => {
+    it("does nothing when bot is not initialized", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
 
       // Don't connect
-      await channel.setTyping('tg:100200300');
+      await channel.setTyping("tg:100200300");
 
       // No error, no API call
     });
 
-    it('handles typing indicator failure gracefully', async () => {
+    it("handles typing indicator failure gracefully", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      currentBot().api.sendChatAction.mockRejectedValueOnce(new Error('Rate limited'));
+      currentBot().api.sendChatAction.mockRejectedValueOnce(new Error("Rate limited"));
 
-      await expect(channel.setTyping('tg:100200300')).resolves.toBeUndefined();
+      await expect(channel.setTyping("tg:100200300")).resolves.toBeUndefined();
     });
   });
 
   // --- Bot commands ---
 
-  describe('bot commands', () => {
-    it('/chatid replies with chat ID and metadata', async () => {
+  describe("bot commands", () => {
+    it("/chatid replies with chat ID and metadata", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      const handler = currentBot().commandHandlers.get('chatid')!;
+      const handler = currentBot().commandHandlers.get("chatid")!;
       const ctx = {
-        chat: { id: 100200300, type: 'group' as const },
-        from: { first_name: 'Alice' },
+        chat: { id: 100200300, type: "group" as const },
+        from: { first_name: "Alice" },
         reply: vi.fn(),
       };
 
       await handler(ctx);
 
-      expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('tg:100200300'), expect.objectContaining({ parse_mode: 'Markdown' }));
+      expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("tg:100200300"), expect.objectContaining({ parse_mode: "Markdown" }));
     });
 
-    it('/chatid shows chat type', async () => {
+    it("/chatid shows chat type", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      const handler = currentBot().commandHandlers.get('chatid')!;
+      const handler = currentBot().commandHandlers.get("chatid")!;
       const ctx = {
-        chat: { id: 555, type: 'private' as const },
-        from: { first_name: 'Bob' },
+        chat: { id: 555, type: "private" as const },
+        from: { first_name: "Bob" },
         reply: vi.fn(),
       };
 
       await handler(ctx);
 
-      expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining('private'), expect.any(Object));
+      expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("private"), expect.any(Object));
     });
   });
 
   // --- Channel properties ---
 
-  describe('channel properties', () => {
+  describe("channel properties", () => {
     it('has name "telegram"', () => {
       const channel = new TelegramChannel(createTestOpts());
-      expect(channel.name).toBe('telegram');
+      expect(channel.name).toBe("telegram");
     });
   });
 });

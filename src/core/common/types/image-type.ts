@@ -1,1 +1,1 @@
-export type ImageMimeType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+export type ImageMimeType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";

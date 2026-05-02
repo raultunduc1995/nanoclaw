@@ -1,1 +1,1 @@
-export type { ImageMimeType } from './types/image-type.js';
+export type { ImageMimeType } from "./types/image-type.js";

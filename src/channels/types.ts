@@ -1,5 +1,5 @@
-import { ImageMimeType } from '../core/common/index.js';
-import { RegisteredGroup } from '../core/repositories/index.js';
+import { ImageMimeType } from "../core/common/index.js";
+import { RegisteredGroup } from "../core/repositories/index.js";
 
 interface MessageBase {
   id: string;
@@ -13,12 +13,12 @@ interface MessageBase {
 }
 
 interface TextMessage extends MessageBase {
-  kind: 'text';
+  kind: "text";
   content: string;
 }
 
 interface ImageMessage extends MessageBase {
-  kind: 'image';
+  kind: "image";
   content: string;
   imageBase64?: string;
   imageMimeType: ImageMimeType;
@@ -27,7 +27,7 @@ interface ImageMessage extends MessageBase {
 export type InboundMessage = TextMessage | ImageMessage;
 
 export interface ChannelOpts {
-  type: 'telegram';
+  type: "telegram";
   /**
    * Callback type that channels use to deliver inbound messages
    *

@@ -1,11 +1,11 @@
-import path from 'path';
-import fs from 'fs';
+import path from "path";
+import fs from "fs";
 
-import { GROUPS_DIR } from '../utils/config.js';
-import { logger } from '../utils/logger.js';
+import { GROUPS_DIR } from "../utils/config.js";
+import { logger } from "../utils/logger.js";
 
-import type { GroupRow, GroupsLocalResource } from '../db/index.js';
-import { assertValidGroupFolder, ensureWithinBase } from '../utils/index.js';
+import type { GroupRow, GroupsLocalResource } from "../db/index.js";
+import { assertValidGroupFolder, ensureWithinBase } from "../utils/index.js";
 
 // --- Types and interfaces ---
 
@@ -50,7 +50,7 @@ export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRep
 
       createGroupDirectory(groupDir);
 
-      logger.info({ jid, name: group.name, folder: group.folder }, 'Group registered');
+      logger.info({ jid, name: group.name, folder: group.folder }, "Group registered");
     },
 
     updateSessionId: (jid, sessionId) => {
@@ -94,17 +94,17 @@ function resolveGroupFolderPath(folder: string): string {
 }
 
 function createGroupDirectory(groupDir: string): void {
-  fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(groupDir, "logs"), { recursive: true });
 }
 
 function copyGlobalMdToGroup(groupDir: string): void {
-  const globalLocalMd = path.join(GROUPS_DIR, 'global', 'CLAUDE.md');
+  const globalLocalMd = path.join(GROUPS_DIR, "global", "CLAUDE.md");
   if (!fs.existsSync(globalLocalMd)) {
-    logger.warn({ folder: groupDir }, 'Global CLAUDE.md not found, skipping copy to group');
+    logger.warn({ folder: groupDir }, "Global CLAUDE.md not found, skipping copy to group");
     return;
   }
 
-  const groupLocalMd = path.join(groupDir, 'CLAUDE.md');
+  const groupLocalMd = path.join(groupDir, "CLAUDE.md");
   fs.copyFileSync(globalLocalMd, groupLocalMd);
-  logger.info({ folder: groupDir }, 'Copied global CLAUDE.md to group');
+  logger.info({ folder: groupDir }, "Copied global CLAUDE.md to group");
 }

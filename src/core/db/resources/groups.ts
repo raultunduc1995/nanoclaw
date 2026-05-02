@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from "better-sqlite3";
 
 // --- Types and interfaces ---
 
@@ -20,7 +20,7 @@ export interface GroupsLocalResource {
 }
 
 export const createGroupsLocalResource = (db: Database.Database): GroupsLocalResource => ({
-  get: (jid) => db.prepare('SELECT * FROM registered_groups WHERE jid = ?').get(jid) as GroupRow | undefined,
+  get: (jid) => db.prepare("SELECT * FROM registered_groups WHERE jid = ?").get(jid) as GroupRow | undefined,
 
   set: (jid, group) => {
     db.prepare(`INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, is_main, session_id) VALUES (?, ?, ?, ?, ?, ?)`).run(
@@ -33,5 +33,5 @@ export const createGroupsLocalResource = (db: Database.Database): GroupsLocalRes
     );
   },
 
-  getAll: () => db.prepare('SELECT * FROM registered_groups').all() as GroupRow[],
+  getAll: () => db.prepare("SELECT * FROM registered_groups").all() as GroupRow[],
 });

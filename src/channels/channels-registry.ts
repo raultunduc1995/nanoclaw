@@ -1,5 +1,5 @@
-import { TelegramChannel, type TelegramChannelOpts } from './telegram/telegram.js';
-import type { Channel } from './types.js';
+import { TelegramChannel, type TelegramChannelOpts } from "./telegram/telegram.js";
+import type { Channel } from "./types.js";
 
 export interface ChannelsRegistry {
   registerTelegramChannel: (opts: TelegramChannelOpts) => TelegramChannel;
@@ -9,18 +9,18 @@ export interface ChannelsRegistry {
 }
 
 const channelsRegistry = ((): ChannelsRegistry => {
-  const channels = new Map<'telegram', Channel>();
+  const channels = new Map<"telegram", Channel>();
 
   return {
     registerTelegramChannel: (opts) => {
       const channel = new TelegramChannel(opts);
 
-      channels.set('telegram', channel);
+      channels.set("telegram", channel);
       return channel;
     },
 
     findChannel: (jid) => {
-      const telegramChannel = channels.get('telegram');
+      const telegramChannel = channels.get("telegram");
       if (!(telegramChannel && telegramChannel.ownsJid(jid))) {
         return undefined;
       }
