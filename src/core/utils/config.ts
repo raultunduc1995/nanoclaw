@@ -1,6 +1,5 @@
 import path from "path";
 
-export const ENABLE_TELEGRAM = process.env.ENABLE_TELEGRAM === "true";
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 
 const PROJECT_ROOT = process.cwd();
