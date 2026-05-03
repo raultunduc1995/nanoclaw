@@ -50,7 +50,7 @@ export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRep
 
       createGroupDirectory(groupDir);
 
-      logger.info({ jid, name: group.name, folder: group.folder }, "Group registered");
+      logger.debug({ jid, name: group.name, folder: group.folder }, "Group registered");
     },
 
     updateSessionId: (jid, sessionId) => {
@@ -106,5 +106,5 @@ function copyGlobalMdToGroup(groupDir: string): void {
 
   const groupLocalMd = path.join(groupDir, "CLAUDE.md");
   fs.copyFileSync(globalLocalMd, groupLocalMd);
-  logger.info({ folder: groupDir }, "Copied global CLAUDE.md to group");
+  logger.debug({ folder: groupDir }, "Copied global CLAUDE.md to group");
 }

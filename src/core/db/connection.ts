@@ -29,7 +29,7 @@ export function initLocalDatabase(): LocalResource {
   const dbPath = path.join(STORE_DIR, "messages.db");
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   instance = createLocalResource(new Database(dbPath));
-  logger.info(`Database was initialized successfuly`);
+  logger.info("Database was initialized successfuly");
   return instance;
 }
 

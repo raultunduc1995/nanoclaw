@@ -21,7 +21,7 @@ export function startVoiceServer(onVoiceInput: (text: string) => void): void {
           res.writeHead(400).end(JSON.stringify({ error: "text is required" }));
           return;
         }
-        logger.info({ text }, "Voice input received");
+        logger.debug({ text }, "Voice input received");
         onVoiceInput(text.trim());
         res.writeHead(202).end(JSON.stringify({ status: "accepted" }));
       } catch {
@@ -31,6 +31,6 @@ export function startVoiceServer(onVoiceInput: (text: string) => void): void {
   });
 
   server.listen(VOICE_PORT, () => {
-    logger.info(`Voice server listening on port ${VOICE_PORT}`);
+    logger.debug(`Voice server listening on port ${VOICE_PORT}`);
   });
 }
