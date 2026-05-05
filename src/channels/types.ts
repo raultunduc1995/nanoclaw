@@ -4,22 +4,15 @@ import { RegisteredGroup } from "../core/repositories/index.js";
 interface MessageBase {
   id: string;
   chatJid: string;
-  sender: string;
-  senderName: string;
-  timestamp: string;
-  replyToMessageId?: string;
-  replyToMessageContent?: string;
-  replyToSenderName?: string;
+  prompt: string;
 }
 
 interface TextMessage extends MessageBase {
   kind: "text";
-  content: string;
 }
 
 interface ImageMessage extends MessageBase {
   kind: "image";
-  content: string;
   imageBase64?: string;
   imageMimeType: ImageMimeType;
 }
