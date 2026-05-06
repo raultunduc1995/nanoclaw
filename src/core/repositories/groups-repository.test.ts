@@ -4,11 +4,11 @@ import { initTestDatabase } from "../db/connection.js";
 import type { LocalResource } from "../db/connection.js";
 import { createGroupsRepository, GroupsRepository } from "./groups-repository.js";
 
-vi.mock("../../logger.js", () => ({
+vi.mock("../utils/logger.js", () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock("../../config.js", () => ({
+vi.mock("../utils/config.js", () => ({
   DATA_DIR: "/tmp/test-data",
   GROUPS_DIR: "/tmp/test-groups",
 }));
@@ -147,22 +147,5 @@ describe("register", () => {
     repo.register("tg:dir", { name: "Dir Test", folder: "telegram_dir-test", addedAt: "2024-01-01T00:00:00.000Z", isMain: false, sessionId: "" });
 
     expect(fs.default.mkdirSync).toHaveBeenCalledWith("/tmp/test-groups/telegram_dir-test/logs", { recursive: true });
-  });
-
-  it("copies global CLAUDE.md for non-main groups", async () => {
-    const fs = await import("fs");
-    (fs.default.existsSync as any).mockReturnValue(true);
-
-    repo.register("tg:secondary", { name: "Secondary", folder: "telegram_secondary", addedAt: "2024-01-01T00:00:00.000Z", isMain: false, sessionId: "" });
-
-    expect(fs.default.copyFileSync).toHaveBeenCalledWith("/tmp/test-groups/global/CLAUDE.md", "/tmp/test-groups/telegram_secondary/CLAUDE.md");
-  });
-
-  it("does not copy global CLAUDE.md for main group", async () => {
-    const fs = await import("fs");
-
-    repo.register("tg:main", { name: "Main", folder: "telegram_main", addedAt: "2024-01-01T00:00:00.000Z", isMain: true, sessionId: "" });
-
-    expect(fs.default.copyFileSync).not.toHaveBeenCalled();
   });
 });

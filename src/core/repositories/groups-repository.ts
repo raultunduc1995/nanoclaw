@@ -45,12 +45,10 @@ export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRep
     getByJid: (jid) => registeredGroups[jid],
 
     register: (jid, group) => {
+      logger.debug({ jid, name: group.name, folder: group.folder }, "Register group...");
       const groupDir = resolveGroupFolderPath(group.folder);
       saveGroup(jid, group);
-
       createGroupDirectory(groupDir);
-
-      logger.debug({ jid, name: group.name, folder: group.folder }, "Group registered");
     },
 
     updateSessionId: (jid, sessionId) => {
@@ -95,16 +93,4 @@ function resolveGroupFolderPath(folder: string): string {
 
 function createGroupDirectory(groupDir: string): void {
   fs.mkdirSync(path.join(groupDir, "logs"), { recursive: true });
-}
-
-function copyGlobalMdToGroup(groupDir: string): void {
-  const globalLocalMd = path.join(GROUPS_DIR, "global", "CLAUDE.md");
-  if (!fs.existsSync(globalLocalMd)) {
-    logger.warn({ folder: groupDir }, "Global CLAUDE.md not found, skipping copy to group");
-    return;
-  }
-
-  const groupLocalMd = path.join(groupDir, "CLAUDE.md");
-  fs.copyFileSync(globalLocalMd, groupLocalMd);
-  logger.debug({ folder: groupDir }, "Copied global CLAUDE.md to group");
 }

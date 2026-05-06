@@ -2,14 +2,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // --- Mocks ---
 
-// Mock registry (registerChannel runs at import time)
-vi.mock("../registry.js", () => ({ registerChannel: vi.fn() }));
+vi.mock("../../core/utils/config.js", () => ({
+  TELEGRAM_BOT_TOKEN: "test-token",
+  TIMEZONE: "UTC",
+}));
 
-// Mock env reader (used by the factory, not needed in unit tests)
-vi.mock("../../../env.js", () => ({ readEnvFile: vi.fn(() => ({})) }));
-
-// Mock logger
-vi.mock("../../../logger.js", () => ({
+vi.mock("../../core/utils/logger.js", () => ({
   logger: {
     debug: vi.fn(),
     info: vi.fn(),
@@ -193,12 +191,13 @@ describe("TelegramChannel", () => {
         expect.objectContaining({
           id: "1",
           chatJid: "tg:100200300",
-          sender: "99001",
-          senderName: "Alice",
-          content: "Hello everyone",
+          kind: "text",
+          prompt: expect.stringContaining("<content>Hello everyone</content>"),
         }),
         expect.anything(),
       );
+      const call = (opts.onInboundMessage as any).mock.calls[0][0];
+      expect(call.prompt).toContain('sender="Alice"');
     });
 
     it("does not deliver messages from unregistered chats", async () => {
@@ -212,21 +211,18 @@ describe("TelegramChannel", () => {
       expect(opts.onInboundMessage).not.toHaveBeenCalled();
     });
 
-    it("skips bot commands (/chatid) but passes other / messages through", async () => {
+    it("skips all messages starting with /", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
 
-      // Bot commands should be skipped
       const ctx1 = createTextCtx({ text: "/chatid" });
       await triggerTextMessage(ctx1);
-      expect(opts.onInboundMessage).not.toHaveBeenCalled();
 
-      // Non-bot /commands should flow through
       const ctx2 = createTextCtx({ text: "/remote-control" });
       await triggerTextMessage(ctx2);
-      expect(opts.onInboundMessage).toHaveBeenCalledTimes(1);
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ content: "/remote-control" }), expect.anything());
+
+      expect(opts.onInboundMessage).not.toHaveBeenCalled();
     });
 
     it("extracts sender name from first_name", async () => {
@@ -237,7 +233,7 @@ describe("TelegramChannel", () => {
       const ctx = createTextCtx({ text: "Hi", firstName: "Bob" });
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: "Bob" }), expect.anything());
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringContaining('sender="Bob"') }), expect.anything());
     });
 
     it("falls back to username when first_name missing", async () => {
@@ -249,7 +245,7 @@ describe("TelegramChannel", () => {
       ctx.from.first_name = undefined as any;
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: "alice_user" }), expect.anything());
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringContaining('sender="alice_user"') }), expect.anything());
     });
 
     it("falls back to user ID when name and username missing", async () => {
@@ -262,7 +258,7 @@ describe("TelegramChannel", () => {
       ctx.from.username = undefined as any;
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ senderName: "42" }), expect.anything());
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringContaining('sender="42"') }), expect.anything());
     });
 
     it("uses sender name as chat name for private chats", async () => {
@@ -305,7 +301,7 @@ describe("TelegramChannel", () => {
       expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ chatJid: "tg:100200300" }), expect.anything());
     });
 
-    it("converts message.date to ISO timestamp", async () => {
+    it("renders message.date as localized time in prompt", async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel(opts);
       await channel.connect();
@@ -314,12 +310,9 @@ describe("TelegramChannel", () => {
       const ctx = createTextCtx({ text: "Hello", date: unixTime });
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          timestamp: "2024-01-01T00:00:00.000Z",
-        }),
-        expect.anything(),
-      );
+      expect(opts.onInboundMessage).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringContaining('time="Jan 1, 2024, 12:00 AM"') }), expect.anything());
+      const call = (opts.onInboundMessage as any).mock.calls[0][0];
+      expect(call.prompt).toContain('timezone="UTC"');
     });
   });
 
@@ -341,15 +334,10 @@ describe("TelegramChannel", () => {
       });
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          content: "Yes, on my way!",
-          replyToMessageId: "42",
-          replyToMessageContent: "Are you coming tonight?",
-          replyToSenderName: "Bob",
-        }),
-        expect.anything(),
-      );
+      const call = (opts.onInboundMessage as any).mock.calls[0][0];
+      expect(call.prompt).toContain('reply_to="42"');
+      expect(call.prompt).toContain('<quoted_message from="Bob">Are you coming tonight?</quoted_message>');
+      expect(call.prompt).toContain("<content>Yes, on my way!</content>");
     });
 
     it("uses caption when reply has no text (media reply)", async () => {
@@ -367,12 +355,8 @@ describe("TelegramChannel", () => {
       });
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          replyToMessageContent: "Check this out",
-        }),
-        expect.anything(),
-      );
+      const call = (opts.onInboundMessage as any).mock.calls[0][0];
+      expect(call.prompt).toContain('<quoted_message from="Carol">Check this out</quoted_message>');
     });
 
     it("falls back to Unknown when reply sender has no from", async () => {
@@ -389,13 +373,9 @@ describe("TelegramChannel", () => {
       });
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          replyToMessageId: "60",
-          replyToSenderName: "Unknown",
-        }),
-        expect.anything(),
-      );
+      const call = (opts.onInboundMessage as any).mock.calls[0][0];
+      expect(call.prompt).toContain('reply_to="60"');
+      expect(call.prompt).toContain('<quoted_message from="Unknown">Channel post</quoted_message>');
     });
 
     it("does not set reply fields when no reply_to_message", async () => {
@@ -406,14 +386,9 @@ describe("TelegramChannel", () => {
       const ctx = createTextCtx({ text: "Just a normal message" });
       await triggerTextMessage(ctx);
 
-      expect(opts.onInboundMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          replyToMessageId: undefined,
-          replyToMessageContent: undefined,
-          replyToSenderName: undefined,
-        }),
-        expect.anything(),
-      );
+      const call = (opts.onInboundMessage as any).mock.calls[0][0];
+      expect(call.prompt).not.toContain("reply_to=");
+      expect(call.prompt).not.toContain("<quoted_message");
     });
   });
 
@@ -427,7 +402,7 @@ describe("TelegramChannel", () => {
 
       await channel.sendMessage("tg:100200300", "Hello");
 
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith("100200300", "Hello", { parse_mode: "Markdown" });
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith("100200300", "Hello", { parse_mode: "HTML" });
     });
 
     it("strips tg: prefix from JID", async () => {
@@ -437,7 +412,7 @@ describe("TelegramChannel", () => {
 
       await channel.sendMessage("tg:-1001234567890", "Group message");
 
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith("-1001234567890", "Group message", { parse_mode: "Markdown" });
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith("-1001234567890", "Group message", { parse_mode: "HTML" });
     });
 
     it("splits messages exceeding 4096 characters", async () => {
@@ -449,8 +424,8 @@ describe("TelegramChannel", () => {
       await channel.sendMessage("tg:100200300", longText);
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(1, "100200300", "x".repeat(4096), { parse_mode: "Markdown" });
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(2, "100200300", "x".repeat(904), { parse_mode: "Markdown" });
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(1, "100200300", "x".repeat(4096), { parse_mode: "HTML" });
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(2, "100200300", "x".repeat(904), { parse_mode: "HTML" });
     });
 
     it("sends exactly one message at 4096 characters", async () => {
