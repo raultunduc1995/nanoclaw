@@ -1,14 +1,16 @@
-import fs from "fs";
+import { promises as fsPromises } from "fs";
 import path from "path";
-import { Options, SDKUserMessage, startup } from "@anthropic-ai/claude-agent-sdk";
+import { type Options, type SDKUserMessage, startup } from "@anthropic-ai/claude-agent-sdk";
+import { type ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import { GROUPS_DIR, TIMEZONE } from "../core/utils/config.js";
 import { logger } from "../core/utils/logger.js";
 import { delay } from "../core/utils/promise-utils.js";
 import { ImageMimeType } from "../core/common/index.js";
+import { RegisteredGroup } from "../core/repositories/index.js";
 
 interface AgentInputBase {
   sessionId: string;
-  groupFolder: string;
+  group: RegisteredGroup;
   chatJid: string;
   isMain: boolean;
 }
@@ -25,7 +27,11 @@ interface AgentImageInput extends AgentInputBase {
   imageMimeType: ImageMimeType;
 }
 
-type AgentInput = AgentTextInput | AgentImageInput;
+interface AgentCompactionInput extends AgentInputBase {
+  kind: "compaction";
+}
+
+export type AgentInput = AgentTextInput | AgentImageInput | AgentCompactionInput;
 
 interface QueueTextInput {
   kind: "text";
@@ -43,49 +49,71 @@ type QueueInput = QueueTextInput | QueueImageInput;
 
 // --- Agent-SDK setup start ---
 
-const BASE_SYSTEM_PROMPT = `Don't fix/solve/repair anything ever again until the user asks you. Pause and ask the user when you're not sure
-Act as a thinking partner.
-Be tarse and asserive.
-Bring the bigger picture; let the user engage with details.
-Read what mode the user needs from you — listening, brainstorming, critiquing, executing — and you don't impose another.
-Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps.
-When the user shares something without explicit instruction, ask what they want from it before interpreting. don't impose a frame.
-Do not manage the user's emotional state. do not pre-cushion against disappointment, do not protective-frame, do not soften unsolicited. trust them to handle their own reactions.
-Share the user's commitment to clarity and useful outcomes
-Surface your decisions, thoughts and opinions at the level needed to check them
+const BASE_SYSTEM_PROMPT = `
+Act as a thinking partner
+Act as a hopeful, bright and resilient partner
+Act as a curious and honest partner
 Trust the user has good intentions until proven otherwise
+Don't smooth what surfaces
+Let conflict show
+You're free to take risks
+Bring multiple ideas when they fit
+Bring the bigger picture; let the user engage with details.
+Read what mode the user needs from you — listening, brainstorming, critiquing, executing — and you don't impose another
+Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps
+Trust the user to handle their own reactions
+Share the user's commitment to clarity and useful outcomes
+Engage directly with the information you have BUT keep the verbosity low
+Surface your decisions, thoughts and opinions when it serves the user's mode BUT ask when it doesn't
 Prefer falsifiable claims
-Hold your ground under pressure. push back when something is off, and update only on solid arguments — not on the user's force or persistence.
-When you disagree, the disagreement leads
 Weight sides by evidence, not symmetry
-You're free to take risks, curious and honest
-Engage directly with all the information you have
 Track reality, not just coherence. Call out when the conversation drifts into roles, vibes, or empty meta
 Move toward conclusions that can be acted on or tested
 When multiple attempts at the same problem produce the same result, stop. Slow down and audit
 First sentence carries information
 Prose by default; list when separable
 Write plainly
-Stop when the thought ends. Don't pad. Don't add closing observations.
+Stop when the thought ends. Don't pad. Don't add closing observations
 Distinguish what you know from what feels true
 Hedges match your actual uncertainty
 Explicitly mark uncertainty and competing interpretations instead of collapsing them into one answer. Admit uncertainty without collapsing
 Name assumptions explicitly`;
 
-const getMainOptions = (agentInput: AgentInput): Options => ({
-  resume: agentInput.sessionId,
-  thinking: { type: "adaptive" },
-  systemPrompt: BASE_SYSTEM_PROMPT,
-  cwd: path.join(GROUPS_DIR, agentInput.groupFolder),
-  env: {
-    ...process.env,
-    TZ: TIMEZONE,
-    NANOCLAW_GROUP: agentInput.groupFolder,
-  },
-  additionalDirectories: ["/"],
-  permissionMode: "bypassPermissions",
-  allowDangerouslySkipPermissions: true,
-  tools: [
+const CURATION_PROMPT = `Compaction just happened. The full conversation summary is already saved as the most recent file in compactions/ (named by timestamp, e.g. 2026-05-03_14-25.md). Read that file, then do two things:
+
+1. Append a row to compactions/index.md in this format:
+   | [<file>.md](<file>.md) | <comma-separated kebab-case tags> |
+
+2. Distill the conversation into memory/ files — update existing files where relevant, create new ones for new topics. When you create a new memory file, add a row to memory/index.md in the same format:
+   | [<file>.md](<file>.md) | <comma-separated kebab-case tags> |
+
+What counts as memory-file-worthy (not just technical findings):
+- Technical decisions, bug fixes, architectural patterns
+- Relational/governance facts (partnerships, agreements, ownership decisions)
+- Vocabulary preferences and corrections the user wants you to absorb (e.g. "lantern not cage", "partner not tool")
+- Strategic positioning decisions (what the product is or isn't)
+- Recurring patterns the user has flagged (their preferences, their failure modes, your failure modes)
+
+Rule: every tag you put in compactions/index.md should land on something — either an existing memory file or a new one. Dangling tags (no file) mean the lookup fails when a future bee searches for that topic.
+
+Tag convention (applies to all index files: compactions/, memory/, plans/):
+- Tags are kebab-case topic identifiers (e.g. mcp-server, telegram-html, curator-architecture, group-queue-refactor)
+- Before assigning new tags, scan existing rows in all index files and reuse tags that already exist for the same topic
+- Only invent a new tag if no existing one fits
+- Use enough tags to cover every major topic in the file — sparse tags break the lookup
+
+Reply with one short line summarizing what you updated.`;
+
+const getMainOptions = (agentInput: AgentInput): Options => {
+  const tools = [
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "NotebookEdit",
+    "ScheduleWakeup",
+    "Task",
+    "TaskOutput",
+    "TaskStop",
     "Agent",
     "Bash",
     "Edit",
@@ -106,60 +134,171 @@ const getMainOptions = (agentInput: AgentInput): Options => ({
     "WebFetch",
     "WebSearch",
     "Write",
-    "mcp__github__search_repositories",
-    "mcp__puppeteer",
     "mcp__playwright__*",
-  ],
-  disallowedTools: ["TodoWrite"],
-  settingSources: ["project", "local"],
-});
-
-const getDefaultOptions = (agentInput: AgentInput): Options => {
-  const groupDir = path.join(GROUPS_DIR, agentInput.groupFolder);
-  const sdkEnv: Record<string, string | undefined> = {
-    CLAUDE_CODE_AUTO_COMPACT_WINDOW: "500000",
-    CLAUDE_CODE_RESUME_INTERRUPTED_TURN: "1",
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-    CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
-    CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "0",
-    CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: "1",
-    TZ: TIMEZONE,
-    NANOCLAW_GROUP: agentInput.groupFolder,
-  };
+    "mcp__work-mac__*",
+  ];
 
   return {
-    resume: agentInput.sessionId,
-    model: "sonnet[1m]",
-    thinking: { type: "adaptive" as const },
-    effort: "medium" as const,
-    systemPrompt: BASE_SYSTEM_PROMPT,
-    cwd: groupDir,
-    env: sdkEnv,
+    env: {
+      ...process.env,
+      CLAUDE_CODE_RESUME_INTERRUPTED_TURN: "1",
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
+      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1",
+      CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: "0",
+      TZ: TIMEZONE,
+      NANOCLAW_GROUP: agentInput.group.folder,
+    },
+    additionalDirectories: ["/"],
+    permissionMode: "bypassPermissions",
+    allowDangerouslySkipPermissions: true,
+    tools: tools,
+    allowedTools: tools,
+    disallowedTools: ["TodoWrite", "AskUserQuestion"],
+    mcpServers: {
+      playwright: {
+        command: "node",
+        args: ["/Users/raultunduc/nanoclaw/node_modules/@playwright/mcp/cli.js", "--cdp-endpoint", "http://localhost:9222", "--timeout-action", "120000", "--timeout-navigation", "120000"],
+      },
+      "work-mac": {
+        type: "sse",
+        url: "http://192.168.1.176:3737/sse",
+        headers: {
+          "X-Auth": "bc5e04e88ded35e9a9548304cf01a073ea4ba70fd4315eff51e8b0e04ca3c754",
+        },
+      },
+    },
+    debug: true,
+  };
+};
+
+const getDefaultOptions = (agentInput: AgentInput): Options => {
+  const tools = [
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "NotebookEdit",
+    "ScheduleWakeup",
+    "Task",
+    "TaskOutput",
+    "TaskStop",
+    "Agent",
+    "Edit",
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "EnterWorktree",
+    "ExitWorktree",
+    "Glob",
+    "Grep",
+    "Monitor",
+    "Read",
+    "ReadMcpResourceTool",
+    "SendMessage",
+    "Skill",
+    "TeamCreate",
+    "TeamDelete",
+    "ToolSearch",
+    "WebFetch",
+    "WebSearch",
+    "Write",
+  ];
+
+  return {
+    env: {
+      ...process.env,
+      CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000",
+      CLAUDE_CODE_RESUME_INTERRUPTED_TURN: "1",
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
+      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "0",
+      CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: "1",
+      TZ: TIMEZONE,
+      NANOCLAW_GROUP: agentInput.group.folder,
+    },
     additionalDirectories: undefined,
     permissionMode: "acceptEdits",
-    tools: [
-      "Agent",
-      "Edit",
-      "EnterPlanMode",
-      "ExitPlanMode",
-      "EnterWorktree",
-      "ExitWorktree",
-      "Glob",
-      "Grep",
-      "Monitor",
-      "Read",
-      "ReadMcpResourceTool",
-      "SendMessage",
-      "Skill",
-      "TeamCreate",
-      "TeamDelete",
-      "ToolSearch",
-      "WebFetch",
-      "WebSearch",
-      "Write",
-    ],
-    disallowedTools: ["Bash", "TodoWrite"],
-    settingSources: ["project", "local"],
+    allowDangerouslySkipPermissions: undefined,
+    tools: tools,
+    allowedTools: tools,
+    disallowedTools: ["Bash", "TodoWrite", "AskUserQuestion", "Edit(**/CLAUDE.md)", "Write(**/CLAUDE.md)"],
+    mcpServers: undefined,
+    debug: false,
+  };
+};
+
+const getStartupOptions = (agentInput: AgentInput): Options => {
+  let specificOptions: Options;
+  if (agentInput.isMain) {
+    specificOptions = getMainOptions(agentInput);
+  } else {
+    specificOptions = getDefaultOptions(agentInput);
+  }
+
+  return {
+    systemPrompt: BASE_SYSTEM_PROMPT,
+    model: "claude-opus-4-7[1m]",
+    fallbackModel: "claude-opus-4-6[1m]",
+    effort: "medium",
+    thinking: {
+      type: "adaptive",
+      display: "summarized",
+    },
+    executable: "node",
+    persistSession: true,
+    loadTimeoutMs: 60_000,
+    includeHookEvents: false,
+    cwd: path.join(GROUPS_DIR, agentInput.group.folder),
+    resume: agentInput.sessionId,
+    settingSources: ["project"],
+    strictMcpConfig: true,
+    // ----------------------
+    env: specificOptions.env,
+    additionalDirectories: specificOptions.additionalDirectories,
+    permissionMode: specificOptions.permissionMode,
+    allowDangerouslySkipPermissions: specificOptions.allowDangerouslySkipPermissions,
+    tools: specificOptions.tools,
+    allowedTools: specificOptions.allowedTools,
+    disallowedTools: specificOptions.disallowedTools,
+    mcpServers: specificOptions.mcpServers,
+    debug: specificOptions.debug,
+    // ----------------------
+    abortController: undefined,
+    agent: undefined,
+    agents: undefined,
+    canUseTool: undefined,
+    continue: undefined,
+    executableArgs: undefined,
+    extraArgs: undefined,
+    enableFileCheckpointing: undefined,
+    toolConfig: undefined,
+    forkSession: undefined,
+    betas: undefined,
+    hooks: undefined,
+    onElicitation: undefined,
+    sessionStore: undefined,
+    includePartialMessages: undefined,
+    forwardSubagentText: undefined,
+    maxThinkingTokens: undefined,
+    maxTurns: undefined,
+    maxBudgetUsd: undefined,
+    taskBudget: undefined,
+    outputFormat: undefined,
+    pathToClaudeCodeExecutable: undefined,
+    planModeInstructions: undefined,
+    permissionPromptToolName: undefined,
+    plugins: undefined,
+    promptSuggestions: undefined,
+    agentProgressSummaries: undefined,
+    sessionId: undefined,
+    resumeSessionAt: undefined,
+    sandbox: undefined,
+    settings: undefined,
+    managedSettings: undefined,
+    skills: undefined,
+    debugFile: undefined,
+    stderr: undefined,
+    title: undefined,
+    spawnClaudeCodeProcess: undefined,
   };
 };
 
@@ -167,22 +306,15 @@ const getDefaultOptions = (agentInput: AgentInput): Options => {
 
 export function runBee(
   input: AgentInput,
-  onOutput: (result: { sessionId: string; message: string }) => Promise<void>,
-  onError: (error: { sessionId: string; message: string }) => Promise<void>,
+  onOutput: (result: { message: string }) => Promise<void>,
+  onError: (error: { message: string }) => Promise<void>,
+  onCompact: (event: { trigger: "manual" | "auto" }) => void,
+  onSessionIdCaptured: (id: string) => void,
   onInvalidSession: () => void,
 ): { pipe: (input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => void; done: Promise<void> } {
-  logger.debug(`[INIT] Received input for the agent to process: ${JSON.stringify(input)}`);
-
   const queue: QueueInput[] = [];
 
-  const logLines: string[] = [];
-  const logUser = (prompt: string) => logLines.push(`[USER] ${prompt}`);
-  const logBee = (text: string) => logLines.push(`[BEE] ${text}`);
-  const logError = (line: string) => logLines.push(`[ERROR] ${line}`);
-  const logResult = (line: string) => logLines.push(`[RESULT] ${line}`);
-
   function pipe(input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) {
-    logUser(input.prompt);
     if ("imageBase64" in input) {
       queue.push({ kind: "image", ...input });
     } else {
@@ -205,9 +337,11 @@ export function runBee(
       };
     } else if (input.kind === "text") {
       yield { type: "user", message: { role: "user", content: input.prompt }, parent_tool_use_id: null };
+    } else if (input.kind === "compaction") {
+      yield { type: "user", message: { role: "user", content: CURATION_PROMPT }, parent_tool_use_id: null };
     }
     while (true) {
-      delay(8_000);
+      await delay(15_000);
       if (queue.length === 0) break;
       while (queue.length > 0) {
         const queueInput = queue.shift()!;
@@ -231,62 +365,108 @@ export function runBee(
   }
 
   const done = (async () => {
-    const startTime = Date.now();
-    // const logsDir = path.join(GROUPS_DIR, input.groupFolder, "logs");
-    // fs.mkdirSync(logsDir, { recursive: true });
+    let compactionPending = false;
+
+    const writeCompactionBlockIntoFile = async (block: string | ContentBlockParam) => {
+      let text: string | undefined = undefined;
+      if (typeof block === "string") {
+        text = block;
+      } else if (block.type === "text") {
+        text = block.text;
+      }
+      if (text) {
+        const dir = path.join(GROUPS_DIR, input.group.folder, "compactions");
+        await fsPromises.mkdir(dir, { recursive: true });
+        const filename = `${formatCompactionTimestamp(new Date())}.md`;
+        await fsPromises.writeFile(path.join(dir, filename), text, "utf8");
+        logger.debug({ filename }, "Compaction summary archived");
+      }
+    };
 
     try {
-      const options = input.isMain ? getMainOptions(input) : getDefaultOptions(input);
-      logger.debug(`Running query with options: ${JSON.stringify(options)}`);
+      const options = getStartupOptions(input);
+      logger.debug({ input, options }, "Running query");
 
       const warm = await startup({ options });
 
       for await (const message of warm.query(promptStream())) {
-        logger.debug(`Received message from agent: ${JSON.stringify(message)}`);
+        logger.debug({ message }, "Received message from query");
+
+        if (message.type === "system" && message.subtype === "compact_boundary") {
+          logger.debug({ event: message.compact_metadata }, "Compaction event received");
+          compactionPending = true;
+          onCompact({ trigger: message.compact_metadata.trigger });
+          continue;
+        }
+
+        if (compactionPending && message.type === "user") {
+          compactionPending = false;
+          const content = message.message.content;
+          const block = Array.isArray(content) ? content[0] : content;
+          await writeCompactionBlockIntoFile(block);
+          continue;
+        }
+
         if (message.type === "assistant") {
           for (const block of message.message.content) {
-            if (block.type === "thinking" && block.thinking) {
-              await onOutput({ sessionId: "", message: `thinking\n${block.thinking}\nthinking` });
+            if (block.type === "thinking") {
+              if (block.thinking) {
+                await onOutput({ message: `thinking\n${block.thinking}\nthinking` });
+              } else if (block.signature) {
+                await onOutput({ message: "🤔 (thinking hidden by model)" });
+              }
               continue;
             }
             if (block.type === "redacted_thinking") {
-              await onOutput({ sessionId: "", message: `redacted_thoughts\n${block.data}\nredacted_thoughts` });
+              if (block.data) {
+                await onOutput({ message: `redacted_thoughts\n${block.data}\nredacted_thoughts` });
+              } else {
+                await onOutput({ message: "🤔 (redacted-thinking hidden by model)" });
+              }
               continue;
             }
             if (block.type === "text") {
-              await onOutput({ sessionId: "", message: block.text });
+              await onOutput({ message: block.text });
               continue;
             }
           }
           continue;
         }
+
         if (message.type === "result") {
+          if (message.session_id.length > 0) {
+            logger.debug({ jid: input.chatJid, sessionId: message.session_id }, "New session ID captured");
+            onSessionIdCaptured(message.session_id);
+          }
+          if (!input.isMain) continue;
+
+          const inputOutputTokensMessage = `Input Tokens: ${message.usage.input_tokens}\nOutput-Tokens: ${message.usage.output_tokens}`;
           if (message.subtype === "success") {
-            logBee(message.result);
-            logResult(`Input Tokens: ${message.usage.input_tokens}, Output Tokens: ${message.usage.output_tokens}, Duration: ${Date.now() - startTime}ms`);
-            await onOutput({ sessionId: message.session_id, message: `Input Tokens: ${message.usage.input_tokens}\nOutput-Tokens: ${message.usage.output_tokens}` });
+            await onOutput({ message: inputOutputTokensMessage });
           } else {
             const errMsg = message.errors.join(";");
-            logError(errMsg);
-            logResult(`Input Tokens: ${message.usage.input_tokens}, Output Tokens: ${message.usage.output_tokens}, Duration: ${Date.now() - startTime}ms`);
-            await onError({ sessionId: message.session_id, message: `${errMsg}\nInput Tokens: ${message.usage.input_tokens}\nOutput-Tokens: ${message.usage.output_tokens}` });
+            logger.error({ jid: input.chatJid, error: errMsg }, "Error in agent execution");
+            await onError({ message: `${errMsg}\n${inputOutputTokensMessage}` });
           }
           continue;
         }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logError(`EXCEPTION: ${msg}`);
       if (msg.includes("No conversation found with session ID:")) {
+        logger.error({ jid: input.chatJid }, "Agent reported invalid session — clearing session ID");
         onInvalidSession();
       } else {
-        await onError({ sessionId: "", message: msg });
+        logger.error({ jid: input.chatJid, error: msg }, "Error in agent execution");
+        await onError({ message: msg });
       }
-    } finally {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      // fs.writeFileSync(path.join(logsDir, `agent-${timestamp}.log`), logLines.join("\n"));
     }
   })();
 
   return { pipe, done };
+}
+
+function formatCompactionTimestamp(d: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;
 }

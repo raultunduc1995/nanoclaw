@@ -27,20 +27,12 @@ interface GroupCompactionData extends GroupDataBase {
 type GroupData = GroupTextData | GroupImageData | GroupCompactionData;
 
 interface GroupQueueDeps {
-  runBee: (
-    input: AgentInput,
-    onOutput: (result: { sessionId: string; message: string }) => Promise<void>,
-    onError: (error: { sessionId: string; message: string }) => Promise<void>,
-    onInvalidSession: () => void,
-    onCompact: (event: { sessionId: string; trigger: "manual" | "auto" }) => Promise<void>,
-  ) => { pipe: (input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => void; done: Promise<void> };
-  onOutput: (jid: string, group: RegisteredGroup, result: { sessionId: string; message: string }) => Promise<void>;
-  onError: (jid: string, error: { sessionId: string; message: string }) => Promise<void>;
-  onInvalidSession: (jid: string) => void;
+  runBee: (input: AgentInput) => { pipe: (input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => void; done: Promise<void> };
 }
 
 export interface GroupQueue {
   deliver: (data: GroupData) => boolean;
+  enqueueCompaction: (data: GroupCompactionData) => void;
   shutdown: () => void;
 }
 
@@ -49,12 +41,6 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
   let shuttingDown = false;
   let pipe: ((input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => void) | undefined;
   let runningJid: string | undefined;
-
-  const enqueue = (data: GroupCompactionData): void => {
-    if (shuttingDown) return;
-    logger.debug({ queueLength: queue.length }, "Enqueued message at front (no pipe)");
-    queue.unshift(data);
-  };
 
   const deliver = (data: GroupData): boolean => {
     if (shuttingDown) return false;
@@ -78,32 +64,16 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
     }
 
     runningJid = data.jid;
-    const jid = data.jid;
-    const group = data.group.name;
-    logger.debug({ jid, group }, "Spawning agent for group");
+    logger.debug({ jid: data.jid, group: data.group.name }, "Spawning agent for group");
 
-    const base = { groupFolder: data.group.folder, chatJid: data.jid, isMain: data.group.isMain, sessionId: data.group.sessionId };
+    const base = { group: data.group, chatJid: data.jid, isMain: data.group.isMain, sessionId: data.group.sessionId };
     const beeAgentInput: AgentInput =
       data.kind === "compaction"
         ? { ...base, kind: "compaction" }
         : data.kind === "image"
           ? { ...base, kind: "image", prompt: data.prompt, imageBase64: data.imageBase64, imageMimeType: data.imageMimeType }
           : { ...base, kind: "text", prompt: data.prompt };
-    const channel = deps.runBee(
-      beeAgentInput,
-      async (output) => deps.onOutput(data.jid, data.group, output),
-      async (error) => {
-        logger.error({ data, error }, "Error in agent execution");
-        deps.onError(data.jid, error);
-      },
-      () => {
-        logger.warn({ data }, "Agent reported invalid session — clearing session ID");
-        deps.onInvalidSession(data.jid);
-      },
-      async (_event) => {
-        enqueue({ kind: "compaction", jid: data.jid, group: data.group });
-      },
-    );
+    const channel = deps.runBee(beeAgentInput);
     pipe = channel.pipe;
 
     channel.done
@@ -125,6 +95,11 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
 
   return {
     deliver: (data) => deliver(data),
+    enqueueCompaction: (data) => {
+      if (shuttingDown) return;
+      logger.debug({ queueLength: queue.length }, "Enqueued message at front (no pipe)");
+      queue.unshift(data);
+    },
     shutdown: () => {
       logger.info({ queueLength: queue.length }, "GroupQueue shutting down");
       shuttingDown = true;

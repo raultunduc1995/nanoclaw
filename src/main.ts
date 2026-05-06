@@ -29,24 +29,25 @@ const initRepos = () => {
 const initMain = () => {
   initRepos();
   groupQueue = createGroupQueue({
-    runBee: (input, onOutput, onError, onInvalidSession, onCompact) => runBee(input, onOutput, onError, onInvalidSession, onCompact),
-    onOutput: async (jid, group, output) => {
-      if (output.sessionId.length > 0) {
-        logger.debug({ jid, group, sessionId: output.sessionId }, "Updating session ID for group");
-        groupsRepo.updateSessionId(jid, output.sessionId);
-      }
-      const channel = channelsRegistry.findChannel(jid);
-      if (channel) {
-        await channel.sendMessage(jid, output.message);
-      }
-    },
-    onError: async (jid, error) => {
-      const channel = channelsRegistry.findChannel(jid);
-      if (channel) {
-        await channel.sendMessage(jid, error.message);
-      }
-    },
-    onInvalidSession: (jid) => groupsRepo.updateSessionId(jid, ""),
+    runBee: (input) =>
+      runBee(
+        input,
+        async (output) => {
+          const channel = channelsRegistry.findChannel(input.chatJid);
+          if (channel) {
+            await channel.sendMessage(input.chatJid, output.message);
+          }
+        },
+        async (error) => {
+          const channel = channelsRegistry.findChannel(input.chatJid);
+          if (channel) {
+            await channel.sendMessage(input.chatJid, error.message);
+          }
+        },
+        (_) => groupQueue.enqueueCompaction({ kind: "compaction", jid: input.chatJid, group: input.group }),
+        (sessionId) => groupsRepo.updateSessionId(input.chatJid, sessionId),
+        () => groupsRepo.updateSessionId(input.chatJid, ""),
+      ),
   });
 };
 
