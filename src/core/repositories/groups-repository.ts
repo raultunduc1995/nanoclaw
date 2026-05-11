@@ -13,7 +13,6 @@ export interface RegisteredGroup {
   name: string;
   folder: string;
   addedAt: string;
-  isMain: boolean;
   sessionId: string;
 }
 
@@ -67,7 +66,6 @@ const toRegisteredGroup = (row: GroupRow): RegisteredGroup => ({
   name: row.name,
   folder: row.folder,
   addedAt: row.added_at,
-  isMain: row.is_main === 1,
   sessionId: row.session_id,
 });
 
@@ -76,7 +74,6 @@ const toGroupRow = (jid: string, group: RegisteredGroup): GroupRow => ({
   name: group.name,
   folder: group.folder,
   added_at: group.addedAt,
-  is_main: group.isMain ? 1 : 0,
   session_id: group.sessionId,
 });
 

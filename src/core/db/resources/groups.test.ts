@@ -17,7 +17,6 @@ const row = (overrides?: Partial<GroupRow>): GroupRow => ({
   name: "Test Group",
   folder: "telegram_test-group",
   added_at: "2024-01-01T00:00:00.000Z",
-  is_main: 0,
   session_id: "",
   ...overrides,
 });
@@ -43,16 +42,6 @@ describe("set and get", () => {
     expect(result!.name).toBe("Updated");
     expect(groups.getAll()).toHaveLength(1);
   });
-
-  it("stores is_main as 1", () => {
-    groups.set("tg:main", row({ jid: "tg:main", folder: "telegram_main", is_main: 1 }));
-    expect(groups.get("tg:main")!.is_main).toBe(1);
-  });
-
-  it("stores is_main as 0", () => {
-    groups.set("tg:100", row({ is_main: 0 }));
-    expect(groups.get("tg:100")!.is_main).toBe(0);
-  });
 });
 
 describe("getAll", () => {
@@ -67,9 +56,8 @@ describe("getAll", () => {
   });
 
   it("returns raw GroupRow fields", () => {
-    groups.set("tg:100", row({ is_main: 1 }));
+    groups.set("tg:100", row());
     const result = groups.getAll();
-    expect(result[0].is_main).toBe(1);
     expect(result[0].added_at).toBe("2024-01-01T00:00:00.000Z");
   });
 });

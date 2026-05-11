@@ -34,7 +34,7 @@ export class TelegramChannel implements Channel {
       const chatName = chatType === "private" ? ctx.from?.first_name || "Private" : "title" in ctx.chat ? ctx.chat.title || "Unknown" : "Unknown";
       ctx.reply(`Chat ID: \`tg:${chatId}\`\nName: ${chatName}\nType: ${chatType}`, { parse_mode: "Markdown" });
       // logger.info(`Register new bot: ${chatId}`);
-      // this.opts.registerNewGroup(`tg:${chatId}`, { name: `${chatName}`, folder: `telegram-${chatName}`, addedAt: new Date().toISOString(), isMain: true, sessionId: '' });
+      // this.opts.registerNewGroup(`tg:${chatId}`, { name: `${chatName}`, folder: `telegram-${chatName}`, addedAt: new Date().toISOString(), sessionId: '' });
     });
 
     this.bot.on("message:text", async (ctx) => {
@@ -107,6 +107,8 @@ export class TelegramChannel implements Channel {
   }
 
   async sendMessage(jid: string, text: string, threadId?: string): Promise<void> {
+    logger.debug({ jid, text, threadId }, "Sending telegram message");
+
     try {
       const numericId = jid.replace(/^tg:/, "");
       const options = threadId ? { message_thread_id: parseInt(threadId, 10) } : {};
@@ -120,7 +122,6 @@ export class TelegramChannel implements Channel {
           await sendTelegramMessage(this.bot.api, numericId, text.slice(i, i + MAX_LENGTH), options);
         }
       }
-      logger.debug({ jid, length: text.length, threadId }, "Telegram message sent");
     } catch (err) {
       logger.error({ jid, err }, "Failed to send Telegram message");
     }

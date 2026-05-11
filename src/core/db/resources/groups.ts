@@ -8,7 +8,6 @@ export interface GroupRow {
   folder: string;
   session_id: string;
   added_at: string;
-  is_main: number | null;
 }
 
 // --- Local resource interface and implementation ---
@@ -23,14 +22,7 @@ export const createGroupsLocalResource = (db: Database.Database): GroupsLocalRes
   get: (jid) => db.prepare("SELECT * FROM registered_groups WHERE jid = ?").get(jid) as GroupRow | undefined,
 
   set: (jid, group) => {
-    db.prepare(`INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, is_main, session_id) VALUES (?, ?, ?, ?, ?, ?)`).run(
-      jid,
-      group.name,
-      group.folder,
-      group.added_at,
-      group.is_main ? 1 : 0,
-      group.session_id,
-    );
+    db.prepare(`INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, session_id) VALUES (?, ?, ?, ?, ?)`).run(jid, group.name, group.folder, group.added_at, group.session_id);
   },
 
   getAll: () => db.prepare("SELECT * FROM registered_groups").all() as GroupRow[],

@@ -63,10 +63,9 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
       return false;
     }
 
+    logger.debug({ data }, "Spawning agent for group");
     runningJid = data.jid;
-    logger.debug({ jid: data.jid, group: data.group.name }, "Spawning agent for group");
-
-    const base = { group: data.group, chatJid: data.jid, isMain: data.group.isMain, sessionId: data.group.sessionId };
+    const base = { group: data.group, chatJid: data.jid, sessionId: data.group.sessionId };
     const beeAgentInput: AgentInput =
       data.kind === "compaction"
         ? { ...base, kind: "compaction" }
@@ -81,6 +80,7 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
         logger.error({ data, err }, "Error in runAgent");
       })
       .finally(() => {
+        logger.debug({ data }, "Agent finished processing the group request");
         pipe = undefined;
         runningJid = undefined;
         if (queue.length > 0) {
