@@ -54,7 +54,6 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
         } else if (data.kind === "compaction") {
           throw new Error(`Compaction reached pipe path — invariant broken (jid=${data.jid})`);
         }
-        logger.debug({ data }, "Piped message to running agent");
         return true;
       }
 
@@ -63,7 +62,6 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
       return false;
     }
 
-    logger.debug({ data }, "Spawning agent for group");
     runningJid = data.jid;
     const base = { group: data.group, chatJid: data.jid, sessionId: data.group.sessionId };
     const beeAgentInput: AgentInput =
@@ -80,7 +78,6 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
         logger.error({ data, err }, "Error in runAgent");
       })
       .finally(() => {
-        logger.debug({ data }, "Agent finished processing the group request");
         pipe = undefined;
         runningJid = undefined;
         if (queue.length > 0) {
