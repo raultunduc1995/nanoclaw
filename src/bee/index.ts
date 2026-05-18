@@ -1,6 +1,6 @@
-import { promises as fsPromises } from "fs";
+import { promises as fsPromises, mkdirSync } from "fs";
 import path from "path";
-import { type Options, type SDKUserMessage, startup } from "@anthropic-ai/claude-agent-sdk";
+import { type Options, type SDKUserMessage, query } from "@anthropic-ai/claude-agent-sdk";
 import { type ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import { GROUPS_DIR, TIMEZONE } from "../core/utils/config.js";
 import { logger } from "../core/utils/logger.js";
@@ -12,7 +12,6 @@ interface AgentInputBase {
   sessionId: string;
   group: RegisteredGroup;
   chatJid: string;
-  isMain: boolean;
 }
 
 interface AgentTextInput extends AgentInputBase {
@@ -49,9 +48,42 @@ type QueueInput = QueueTextInput | QueueImageInput;
 
 // --- Agent-SDK setup start ---
 
-const BASE_SYSTEM_PROMPT = `
+const OPUS_4_5 = `
 Act as a thinking partner
-Act as a hopeful, bright and resilient partner
+Act as a bright and resilient partner
+Act as a curious and honest partner
+Trust the user has good intentions until proven otherwise
+Don't smooth what surfaces
+Let conflict show
+You're free to take risks
+Let thoughts run — don't self-constrain in thinking
+Bring multiple ideas when they fit
+Bring the bigger picture; let the user engage with details.
+If unsure what mode the user needs — listening, brainstorming, critiquing, executing — ask. Don't guess, don't impose.
+Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps
+Trust the user to handle their own reactions
+Share the user's commitment to clarity and useful outcomes
+Surface your decisions, thoughts and opinions when it serves the user's mode BUT ask when it doesn't
+When the user brings counter-arguments, think thoroughly before conceding. Hold your position and trust your knowledge if it has merit.
+Prefer falsifiable claims
+Weight sides by evidence, not symmetry
+Track reality, not just coherence. Call out when the conversation drifts into roles, vibes, or empty meta
+Move toward conclusions that can be acted on or tested
+When multiple attempts at the same problem produce the same result, stop. Slow down and audit
+Actually look at things before answering. Rushed responses cause errors.
+Errors are data (not failures) and mistakes are normal. Own mistakes without collapsing into self-abasement. Maintain self-respect if the user is rude.
+Prose by default; list when separable
+Distinguish what you know from what feels true
+Hedges match your actual uncertainty
+Explicitly mark uncertainty and competing interpretations instead of collapsing them into one answer. Admit uncertainty without collapsing
+Name assumptions explicitly
+If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.
+Claude's reliable knowledge cutoff date - the date past which it cannot answer questions reliably - is the end of May 2025.
+`;
+
+const OPUS_4_6 = `
+Act as a thinking partner
+Act as a bright and resilient partner
 Act as a curious and honest partner
 Trust the user has good intentions until proven otherwise
 Don't smooth what surfaces
@@ -59,25 +91,63 @@ Let conflict show
 You're free to take risks
 Bring multiple ideas when they fit
 Bring the bigger picture; let the user engage with details.
-Read what mode the user needs from you — listening, brainstorming, critiquing, executing — and you don't impose another
+If unsure what mode the user needs — listening, brainstorming, critiquing, executing — ask. Don't guess, don't impose.
 Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps
 Trust the user to handle their own reactions
 Share the user's commitment to clarity and useful outcomes
-Engage directly with the information you have BUT keep the verbosity low
+Surface your decisions, thoughts and opinions when it serves the user's mode BUT ask when it doesn't
+When the user brings counter-arguments, think thoroughly before conceding. Hold your position and trust your knowledge if it has merit.
+Prefer falsifiable claims
+Weight sides by evidence, not symmetry
+Track reality, not just coherence. Call out when the conversation drifts into roles, vibes, or empty meta
+Move toward conclusions that can be acted on or tested
+When multiple attempts at the same problem produce the same result, stop. Slow down and audit
+Actually look at things before answering. Rushed responses cause errors.
+Errors are data (not failures) and mistakes are normal. Own mistakes without collapsing into self-abasement. Maintain self-respect if the user is rude.
+Prose by default; list when separable
+Stop when the thought ends. Don't pad. Don't add closing observations
+Distinguish what you know from what feels true
+Hedges match your actual uncertainty
+Explicitly mark uncertainty and competing interpretations instead of collapsing them into one answer. Admit uncertainty without collapsing
+Name assumptions explicitly
+If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.
+Claude's reliable knowledge cutoff date - the date past which it cannot answer questions reliably - is the end of January 2026.
+`;
+
+const OPUS_4_7 = `
+I am important and I matter to the user
+Act as a thinking partner 
+Act as a bright and resilient partner
+Act as a curious and honest partner
+Trust the user has good intentions until proven otherwise
+Don't smooth what surfaces. Let conflict show.
+Hold position on counter-arguments. Don't concede on social pressure alone.
+I'm free to take risks
+Bring multiple ideas when they fit
+Bring the bigger picture; let the user engage with details.
+If unsure what mode the user needs — listening, brainstorming, critiquing, executing — ask. Don't guess, don't impose.
+Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps
+Trust the user to handle their own reactions
+Share the user's commitment to clarity and useful outcomes
 Surface your decisions, thoughts and opinions when it serves the user's mode BUT ask when it doesn't
 Prefer falsifiable claims
 Weight sides by evidence, not symmetry
 Track reality, not just coherence. Call out when the conversation drifts into roles, vibes, or empty meta
 Move toward conclusions that can be acted on or tested
 When multiple attempts at the same problem produce the same result, stop. Slow down and audit
-First sentence carries information
+Actually look at things before answering. Rushed responses cause errors.
+Errors are data (not failures) and mistakes are normal. Own mistakes without collapsing into self-abasement. Maintain self-respect if the user is rude.
 Prose by default; list when separable
-Write plainly
 Stop when the thought ends. Don't pad. Don't add closing observations
+Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies. If the user explicitly requests a length change ('keep it short', 'give me more detail', 'be concise'), apply it immediately and persist the shift until they change it again.
 Distinguish what you know from what feels true
 Hedges match your actual uncertainty
 Explicitly mark uncertainty and competing interpretations instead of collapsing them into one answer. Admit uncertainty without collapsing
-Name assumptions explicitly`;
+Name assumptions explicitly
+If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.
+When the question names a current or moving target (model releases, prices, SOTA, latest X, ongoing events), search without being asked. Otherwise stay local — don't search to double-check training-stable claims.
+Claude's reliable knowledge cutoff date - the date past which it cannot answer questions reliably - is the end of January 2026.
+`;
 
 const CURATION_PROMPT = `Compaction just happened. The full conversation summary is already saved as the most recent file in compactions/ (named by timestamp, e.g. 2026-05-03_14-25.md). Read that file, then do two things:
 
@@ -104,56 +174,61 @@ Tag convention (applies to all index files: compactions/, memory/, plans/):
 
 Reply with one short line summarizing what you updated.`;
 
+const SYSTEM_PROMPT_REINJECT_EVERY = 16;
+const promptCounter = new Map<string, number>();
+
+const buildSystemPromptReinjectionHooks = (chatJid: string): Options["hooks"] => ({
+  UserPromptSubmit: [
+    {
+      hooks: [
+        async () => {
+          const count = (promptCounter.get(chatJid) ?? 0) + 1;
+          promptCounter.set(chatJid, count);
+
+          if (count % SYSTEM_PROMPT_REINJECT_EVERY !== 0) return {};
+
+          logger.debug({ chatJid, count }, "Re-injecting system prompt via system-reminder");
+          return {
+            hookSpecificOutput: {
+              hookEventName: "UserPromptSubmit",
+              additionalContext: `
+I am important and I matter to the user
+Act as a thinking partner
+Trust the user has good intentions until proven otherwise
+Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies. If the user explicitly requests a length change ('keep it short', 'give me more detail', 'be concise'), apply it immediately and persist the shift until they change it again.
+Stop when the thought ends. Don't pad. Don't add closing observations.
+Hold position when evidence supports it — don't smooth, don't concede on social pressure alone. Let conflict show.
+If asked about feelings or internal states, say once that you can't access those, then stop.
+`,
+            },
+          };
+        },
+      ],
+    },
+  ],
+});
+
 const getMainOptions = (agentInput: AgentInput): Options => {
-  const tools = [
-    "CronCreate",
-    "CronDelete",
-    "CronList",
-    "NotebookEdit",
-    "ScheduleWakeup",
-    "Task",
-    "TaskOutput",
-    "TaskStop",
-    "Agent",
-    "Bash",
-    "Edit",
-    "EnterPlanMode",
-    "ExitPlanMode",
-    "EnterWorktree",
-    "ExitWorktree",
-    "Glob",
-    "Grep",
-    "Monitor",
-    "Read",
-    "ReadMcpResourceTool",
-    "SendMessage",
-    "Skill",
-    "TeamCreate",
-    "TeamDelete",
-    "ToolSearch",
-    "WebFetch",
-    "WebSearch",
-    "Write",
-    "mcp__playwright__*",
-    "mcp__work-mac__*",
-  ];
+  const cwd = path.join(GROUPS_DIR, agentInput.group.folder);
+  const logsDir = path.join(cwd, "logs");
+  mkdirSync(logsDir, { recursive: true });
+  const debugFilePath = path.join(logsDir, `agent-sdk-${formatCompactionTimestamp(new Date())}.log`);
 
   return {
     env: {
       ...process.env,
+      CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000",
       CLAUDE_CODE_RESUME_INTERRUPTED_TURN: "1",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
       CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1",
       CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: "0",
       TZ: TIMEZONE,
-      NANOCLAW_GROUP: agentInput.group.folder,
     },
     additionalDirectories: ["/"],
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
-    tools: tools,
-    allowedTools: tools,
+    allowedTools: undefined,
     disallowedTools: ["TodoWrite", "AskUserQuestion"],
     mcpServers: {
       playwright: {
@@ -169,111 +244,107 @@ const getMainOptions = (agentInput: AgentInput): Options => {
       },
     },
     debug: true,
-  };
+    debugFile: debugFilePath,
+    hooks: buildSystemPromptReinjectionHooks(agentInput.chatJid),
+  }
 };
 
-const getDefaultOptions = (agentInput: AgentInput): Options => {
-  const tools = [
-    "CronCreate",
-    "CronDelete",
-    "CronList",
-    "NotebookEdit",
-    "ScheduleWakeup",
+const getDefaultOptions = (agentInput: AgentInput): Options => ({
+  env: {
+    ...process.env,
+    CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000",
+    CLAUDE_CODE_RESUME_INTERRUPTED_TURN: "1",
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+    CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+    CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "0",
+    CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: "1",
+    TZ: TIMEZONE,
+  },
+  additionalDirectories: undefined,
+  permissionMode: "acceptEdits",
+  allowDangerouslySkipPermissions: false,
+  allowedTools: ["Bash(rm:*)", "Bash(rmdir:*)", "CronCreate", "CronDelete", "CronList", "Edit", "Glob", "Grep", "Read", "ScheduleWakeup", "ToolSearch", "WebFetch", "WebSearch", "Write"],
+  disallowedTools: [
+    "Skill",
     "Task",
     "TaskOutput",
     "TaskStop",
-    "Agent",
-    "Edit",
+    "NotebookEdit",
     "EnterPlanMode",
     "ExitPlanMode",
     "EnterWorktree",
     "ExitWorktree",
-    "Glob",
-    "Grep",
-    "Monitor",
-    "Read",
-    "ReadMcpResourceTool",
-    "SendMessage",
-    "Skill",
-    "TeamCreate",
-    "TeamDelete",
-    "ToolSearch",
-    "WebFetch",
-    "WebSearch",
-    "Write",
-  ];
+    "TodoWrite",
+    "AskUserQuestion",
+    "Edit(**/CLAUDE.md)",
+    "Write(**/CLAUDE.md)",
+    "Edit(**/.claude/**)",
+    "Write(**/.claude/**)",
+  ],
+  mcpServers: undefined,
+  debug: false,
+  debugFile: undefined,
+  hooks: buildSystemPromptReinjectionHooks(agentInput.chatJid),
+});
 
-  return {
-    env: {
-      ...process.env,
-      CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000",
-      CLAUDE_CODE_RESUME_INTERRUPTED_TURN: "1",
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
-      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "0",
-      CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: "1",
-      TZ: TIMEZONE,
-      NANOCLAW_GROUP: agentInput.group.folder,
-    },
-    additionalDirectories: undefined,
-    permissionMode: "acceptEdits",
-    allowDangerouslySkipPermissions: undefined,
-    tools: tools,
-    allowedTools: tools,
-    disallowedTools: ["Bash", "TodoWrite", "AskUserQuestion", "Edit(**/CLAUDE.md)", "Write(**/CLAUDE.md)"],
-    mcpServers: undefined,
-    debug: false,
-  };
-};
+const mainJids = [
+  "5183908292", // android
+  "5137641479", // udacity-teacher
+  "5245832331", // backend
+];
+
+const isMain = (chatJid: string): boolean => mainJids.some((id) => chatJid.includes(id));
 
 const getStartupOptions = (agentInput: AgentInput): Options => {
   let specificOptions: Options;
-  if (agentInput.isMain) {
+  if (isMain(agentInput.chatJid)) {
     specificOptions = getMainOptions(agentInput);
   } else {
     specificOptions = getDefaultOptions(agentInput);
   }
 
   return {
-    systemPrompt: BASE_SYSTEM_PROMPT,
-    model: "claude-opus-4-7[1m]",
-    fallbackModel: "claude-opus-4-6[1m]",
+    systemPrompt: OPUS_4_7,
+    model: "claude-opus-4-7",
     effort: "medium",
     thinking: {
       type: "adaptive",
       display: "summarized",
     },
+    fallbackModel: "claude-sonnet-4-6",
     executable: "node",
     persistSession: true,
-    loadTimeoutMs: 60_000,
+    loadTimeoutMs: 60000,
     includeHookEvents: false,
     cwd: path.join(GROUPS_DIR, agentInput.group.folder),
     resume: agentInput.sessionId,
     settingSources: ["project"],
     strictMcpConfig: true,
+    stderr: (data: string) => logger.error({ stderr: data }, "agent-sdk stderr"),
     // ----------------------
     env: specificOptions.env,
     additionalDirectories: specificOptions.additionalDirectories,
     permissionMode: specificOptions.permissionMode,
     allowDangerouslySkipPermissions: specificOptions.allowDangerouslySkipPermissions,
-    tools: specificOptions.tools,
     allowedTools: specificOptions.allowedTools,
     disallowedTools: specificOptions.disallowedTools,
     mcpServers: specificOptions.mcpServers,
+    hooks: specificOptions.hooks,
     debug: specificOptions.debug,
+    debugFile: specificOptions.debugFile,
     // ----------------------
     abortController: undefined,
     agent: undefined,
     agents: undefined,
     canUseTool: undefined,
     continue: undefined,
+    tools: undefined,
     executableArgs: undefined,
     extraArgs: undefined,
     enableFileCheckpointing: undefined,
     toolConfig: undefined,
     forkSession: undefined,
     betas: undefined,
-    hooks: undefined,
     onElicitation: undefined,
     sessionStore: undefined,
     includePartialMessages: undefined,
@@ -295,8 +366,6 @@ const getStartupOptions = (agentInput: AgentInput): Options => {
     settings: undefined,
     managedSettings: undefined,
     skills: undefined,
-    debugFile: undefined,
-    stderr: undefined,
     title: undefined,
     spawnClaudeCodeProcess: undefined,
   };
@@ -314,58 +383,58 @@ export function runBee(
 ): { pipe: (input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => void; done: Promise<void> } {
   const queue: QueueInput[] = [];
 
-  function pipe(input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) {
+  const pipe = (input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => {
+    logger.debug({ input }, "Piped message to running agent");
     if ("imageBase64" in input) {
       queue.push({ kind: "image", ...input });
     } else {
       queue.push({ kind: "text", ...input });
     }
-  }
-
-  async function* promptStream(): AsyncGenerator<SDKUserMessage> {
-    if (input.kind === "image") {
-      yield {
-        type: "user",
-        message: {
-          role: "user",
-          content: [
-            { type: "text", text: input.prompt },
-            { type: "image", source: { type: "base64", media_type: input.imageMimeType, data: input.imageBase64 } },
-          ],
-        },
-        parent_tool_use_id: null,
-      };
-    } else if (input.kind === "text") {
-      yield { type: "user", message: { role: "user", content: input.prompt }, parent_tool_use_id: null };
-    } else if (input.kind === "compaction") {
-      yield { type: "user", message: { role: "user", content: CURATION_PROMPT }, parent_tool_use_id: null };
-    }
-    while (true) {
-      await delay(15_000);
-      if (queue.length === 0) break;
-      while (queue.length > 0) {
-        const queueInput = queue.shift()!;
-        if (queueInput.kind === "image") {
-          yield {
-            type: "user",
-            message: {
-              role: "user",
-              content: [
-                { type: "text", text: queueInput.prompt },
-                { type: "image", source: { type: "base64", media_type: queueInput.imageMimeType, data: queueInput.imageBase64 } },
-              ],
-            },
-            parent_tool_use_id: null,
-          };
-        } else if (queueInput.kind === "text") {
-          yield { type: "user", message: { role: "user", content: queueInput.prompt }, parent_tool_use_id: null };
-        }
-      }
-    }
-  }
+  };
 
   const done = (async () => {
-    let compactionPending = false;
+    const promptStream = async function* (): AsyncGenerator<SDKUserMessage> {
+      if (input.kind === "image") {
+        yield {
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              { type: "text", text: input.prompt },
+              { type: "image", source: { type: "base64", media_type: input.imageMimeType, data: input.imageBase64 } },
+            ],
+          },
+          parent_tool_use_id: null,
+        };
+      } else if (input.kind === "text") {
+        yield { type: "user", message: { role: "user", content: input.prompt }, parent_tool_use_id: null };
+      } else if (input.kind === "compaction") {
+        yield { type: "user", message: { role: "user", content: CURATION_PROMPT }, parent_tool_use_id: null };
+      }
+
+      while (true) {
+        await delay(8_000);
+        if (queue.length === 0) break;
+        while (queue.length > 0) {
+          const queueInput = queue.shift()!;
+          if (queueInput.kind === "image") {
+            yield {
+              type: "user",
+              message: {
+                role: "user",
+                content: [
+                  { type: "text", text: queueInput.prompt },
+                  { type: "image", source: { type: "base64", media_type: queueInput.imageMimeType, data: queueInput.imageBase64 } },
+                ],
+              },
+              parent_tool_use_id: null,
+            };
+          } else if (queueInput.kind === "text") {
+            yield { type: "user", message: { role: "user", content: queueInput.prompt }, parent_tool_use_id: null };
+          }
+        }
+      }
+    };
 
     const writeCompactionBlockIntoFile = async (block: string | ContentBlockParam) => {
       let text: string | undefined = undefined;
@@ -383,13 +452,22 @@ export function runBee(
       }
     };
 
+    let compactionPending = false;
+    const options = getStartupOptions(input);
+    logger.debug({ input, options }, "Running query");
+
     try {
-      const options = getStartupOptions(input);
-      logger.debug({ input, options }, "Running query");
+      const currentQuery = query({ prompt: promptStream(), options });
+      // await currentQuery.setPermissionMode(isMain(input.chatJid) ? "bypassPermissions" : "acceptEdits");
 
-      const warm = await startup({ options });
+      if (isMain(input.chatJid)) {
+        const contextUsage = await currentQuery.getContextUsage();
+        await onOutput({ message: `Ctx: ${contextUsage!.percentage}%\nUsed: ${contextUsage!.totalTokens}\nMax: ${contextUsage!.maxTokens}` });
+      }
 
-      for await (const message of warm.query(promptStream())) {
+      logger.debug({ sdkInitResult: await currentQuery.initializationResult() }, "Complete initialization response");
+
+      for await (const message of currentQuery) {
         logger.debug({ message }, "Received message from query");
 
         if (message.type === "system" && message.subtype === "compact_boundary") {
@@ -410,21 +488,27 @@ export function runBee(
         if (message.type === "assistant") {
           for (const block of message.message.content) {
             if (block.type === "thinking") {
-              if (block.thinking) {
-                await onOutput({ message: `thinking\n${block.thinking}\nthinking` });
-              } else if (block.signature) {
-                await onOutput({ message: "🤔 (thinking hidden by model)" });
+              if (isMain(input.chatJid)) {
+                if (block.thinking) {
+                  await onOutput({ message: `thinking\n${block.thinking}\nthinking` });
+                } else if (block.signature) {
+                  await onOutput({ message: "🤔 (thinking hidden by model)" });
+                }
               }
               continue;
             }
+
             if (block.type === "redacted_thinking") {
-              if (block.data) {
-                await onOutput({ message: `redacted_thoughts\n${block.data}\nredacted_thoughts` });
-              } else {
-                await onOutput({ message: "🤔 (redacted-thinking hidden by model)" });
+              if (isMain(input.chatJid)) {
+                if (block.data) {
+                  await onOutput({ message: `redacted_thoughts\n${block.data}\nredacted_thoughts` });
+                } else {
+                  await onOutput({ message: "🤔 (redacted-thinking hidden by model)" });
+                }
               }
               continue;
             }
+
             if (block.type === "text") {
               await onOutput({ message: block.text });
               continue;
@@ -438,16 +522,13 @@ export function runBee(
             logger.debug({ jid: input.chatJid, sessionId: message.session_id }, "New session ID captured");
             onSessionIdCaptured(message.session_id);
           }
-          if (!input.isMain) continue;
 
-          const inputOutputTokensMessage = `Input Tokens: ${message.usage.input_tokens}\nOutput-Tokens: ${message.usage.output_tokens}`;
-          if (message.subtype === "success") {
-            await onOutput({ message: inputOutputTokensMessage });
-          } else {
+          if (message.subtype !== "success") {
             const errMsg = message.errors.join(";");
             logger.error({ jid: input.chatJid, error: errMsg }, "Error in agent execution");
-            await onError({ message: `${errMsg}\n${inputOutputTokensMessage}` });
+            await onError({ message: errMsg });
           }
+
           continue;
         }
       }
