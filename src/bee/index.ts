@@ -246,7 +246,7 @@ const getMainOptions = (agentInput: AgentInput): Options => {
     debug: true,
     debugFile: debugFilePath,
     hooks: buildSystemPromptReinjectionHooks(agentInput.chatJid),
-  }
+  };
 };
 
 const getDefaultOptions = (agentInput: AgentInput): Options => ({
