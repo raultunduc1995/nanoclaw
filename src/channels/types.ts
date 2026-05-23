@@ -4,6 +4,7 @@ import { RegisteredGroup } from "../core/repositories/index.js";
 interface MessageBase {
   id: string;
   chatJid: string;
+  userName: string;
   prompt: string;
 }
 
@@ -13,7 +14,7 @@ interface TextMessage extends MessageBase {
 
 interface ImageMessage extends MessageBase {
   kind: "image";
-  imageBase64?: string;
+  imageBase64: string;
   imageMimeType: ImageMimeType;
 }
 

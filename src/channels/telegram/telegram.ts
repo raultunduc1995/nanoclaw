@@ -2,7 +2,7 @@ import https from "https";
 
 import { Api, Bot, BotError } from "grammy";
 
-import { TELEGRAM_BOT_TOKEN, TIMEZONE } from "../../core/utils/config.js";
+import { TELEGRAM_BOT_TOKEN } from "../../core/utils/config.js";
 import { logger } from "../../core/utils/logger.js";
 import type { Channel, ChannelOpts } from "../types.js";
 import { markdownToTelegramHTML } from "./telegram-html-converter.js";
@@ -47,19 +47,12 @@ export class TelegramChannel implements Channel {
         return;
       }
 
-      const timestamp = new Date(ctx.message.date * 1000).toISOString();
-      const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || "Unknown";
+      const userName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || "Unknown";
       const msgId = ctx.message.message_id.toString();
-
-      const replyTo = ctx.message.reply_to_message;
-      const replyToMessageId = replyTo?.message_id?.toString();
-      const replyToMessageContent = replyTo?.text || replyTo?.caption;
-      const replyToSenderName = replyTo ? replyTo.from?.first_name || replyTo.from?.username || replyTo.from?.id?.toString() || "Unknown" : undefined;
-
-      const prompt = getPrompt({ timestamp, senderName, content: ctx.message.text, replyToMessageId, replyToMessageContent, replyToSenderName });
+      const content = ctx.message.text;
 
       logger.debug({ chatJid }, "Telegram message received");
-      this.opts.onInboundMessage({ kind: "text", id: msgId, chatJid, prompt }, group);
+      this.opts.onInboundMessage({ kind: "text", id: msgId, chatJid, userName, prompt: content }, group);
     });
 
     this.bot.on("message:photo", async (ctx) => {
@@ -70,24 +63,20 @@ export class TelegramChannel implements Channel {
         return;
       }
 
-      const timestamp = new Date(ctx.message.date * 1000).toISOString();
-      const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || "Unknown";
+      const userName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || "Unknown";
       const msgId = ctx.message.message_id.toString();
       const content = ctx.message.caption || "";
 
       const photos = ctx.message.photo;
       const largest = photos[photos.length - 1];
       const imageBase64 = await downloadTelegramFileAsBase64(ctx.api, largest.file_id);
-
-      const replyTo = ctx.message.reply_to_message;
-      const replyToMessageId = replyTo?.message_id?.toString();
-      const replyToMessageContent = replyTo?.text || replyTo?.caption;
-      const replyToSenderName = replyTo ? replyTo.from?.first_name || replyTo.from?.username || replyTo.from?.id?.toString() || "Unknown" : undefined;
-
-      const prompt = getPrompt({ timestamp, senderName, content, replyToMessageId, replyToMessageContent, replyToSenderName });
+      if (!imageBase64) {
+        logger.error({ chatJid, fileId: largest.file_id }, "Failed to download Telegram photo");
+        return;
+      }
 
       logger.debug({ chatJid }, "Telegram photo received");
-      this.opts.onInboundMessage({ kind: "image", imageBase64, imageMimeType: "image/jpeg", id: msgId, chatJid, prompt }, group);
+      this.opts.onInboundMessage({ kind: "image", id: msgId, chatJid, userName, prompt: content, imageMimeType: "image/jpeg", imageBase64 }, group);
     });
 
     // Handle errors gracefully
@@ -181,50 +170,3 @@ async function sendTelegramMessage(api: { sendMessage: Api["sendMessage"] }, cha
     await api.sendMessage(chatId, text, options);
   }
 }
-
-const getPrompt = (
-  message: { timestamp: string; senderName: string; content: string; replyToMessageId?: string; replyToMessageContent?: string; replyToSenderName?: string },
-  timezone: string = TIMEZONE,
-): string => {
-  const displayTime = formatLocalTime(message.timestamp, timezone);
-
-  const senderAttr = `sender="${escapeXml(message.senderName)}"`;
-  const timezoneAttr = `timezone="${escapeXml(timezone)}"`;
-  const timeAttr = `time="${escapeXml(displayTime)}"`;
-  const replyAttr = message.replyToMessageId ? ` reply_to="${escapeXml(message.replyToMessageId)}"` : "";
-  const content = `<content>${escapeXml(message.content)}</content>`;
-
-  if (message.replyToMessageContent && message.replyToSenderName) {
-    const replySnippet = `<quoted_message from="${escapeXml(message.replyToSenderName)}">${escapeXml(message.replyToMessageContent)}</quoted_message>`;
-    return `<message ${senderAttr} ${timezoneAttr} ${timeAttr}${replyAttr}>${replySnippet}${content}</message>`;
-  } else {
-    return `<message ${senderAttr} ${timezoneAttr} ${timeAttr}${replyAttr}>${content}</message>`;
-  }
-};
-
-const formatLocalTime = (utcIso: string, timezone: string): string => {
-  const isValidTimezone = (tz: string): boolean => {
-    try {
-      Intl.DateTimeFormat(undefined, { timeZone: tz });
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const date = new Date(utcIso);
-  return date.toLocaleString("en-US", {
-    timeZone: isValidTimezone(timezone) ? timezone : "UTC",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-};
-
-const escapeXml = (s: string): string => {
-  if (!s) return "";
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-};

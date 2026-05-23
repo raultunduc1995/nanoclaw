@@ -1,6 +1,5 @@
 import { logger } from "./utils/logger.js";
 import { RegisteredGroup } from "./repositories/groups-repository.js";
-import { AgentInput } from "../bee/index.js";
 import { ImageMimeType } from "./common/index.js";
 
 interface GroupDataBase {
@@ -10,11 +9,13 @@ interface GroupDataBase {
 
 interface GroupTextData extends GroupDataBase {
   kind: "text";
+  userName: string;
   prompt: string;
 }
 
 interface GroupImageData extends GroupDataBase {
   kind: "image";
+  userName: string;
   prompt: string;
   imageBase64: string;
   imageMimeType: ImageMimeType;
@@ -27,7 +28,7 @@ interface GroupCompactionData extends GroupDataBase {
 type GroupData = GroupTextData | GroupImageData | GroupCompactionData;
 
 interface GroupQueueDeps {
-  runBee: (input: AgentInput) => { pipe: (input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => void; done: Promise<void> };
+  runBee: (input: GroupData) => { pipe: (input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => void; done: Promise<void> };
 }
 
 export interface GroupQueue {
@@ -63,14 +64,7 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
     }
 
     runningJid = data.jid;
-    const base = { group: data.group, chatJid: data.jid, sessionId: data.group.sessionId };
-    const beeAgentInput: AgentInput =
-      data.kind === "compaction"
-        ? { ...base, kind: "compaction" }
-        : data.kind === "image"
-          ? { ...base, kind: "image", prompt: data.prompt, imageBase64: data.imageBase64, imageMimeType: data.imageMimeType }
-          : { ...base, kind: "text", prompt: data.prompt };
-    const channel = deps.runBee(beeAgentInput);
+    const channel = deps.runBee(data);
     pipe = channel.pipe;
 
     channel.done

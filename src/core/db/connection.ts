@@ -2,8 +2,7 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 
-import { STORE_DIR } from "../utils/config.js";
-import { logger } from "../utils/logger.js";
+import { STORE_DIR, logger } from "../utils/index.js";
 
 import { createSchema } from "./schema.js";
 import { createGroupsLocalResource } from "./resources/groups.js";
