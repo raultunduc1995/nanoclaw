@@ -1,5 +1,6 @@
+/* eslint-disable no-catch-all/no-catch-all */
 import { Temporal } from "@js-temporal/polyfill";
-import { query, countTokens, type ContentBlockParam, type MessageParam, type Message } from "../client-sdk/index.js";
+import { query, countTokens, type ContentBlockParam, type MessageParam, type Message, RefusalError } from "../client-sdk/index.js";
 import { logger, TIMEZONE } from "../core/utils/index.js";
 import type { AgentInput, HistoryEntry } from "./types.js";
 
@@ -43,16 +44,15 @@ export const createAgent = (deps: AgentDeps): Agent => {
   };
 
   const handleResponse = async (chatJid: string, wrappedUserPrompt: string, response: Message) => {
-    const content = response.content;
     const chatHistory = history[chatJid];
     const contentBlocksParam: Array<ContentBlockParam> = [];
     let message = "";
     let citations = "";
     let sources = "";
 
-    for (const block of content) {
+    for (const block of response.content) {
       if (block.type === "thinking") {
-        await onOutput({ chatJid, message: `<thinking>\n${block.thinking}\n</thinking>` });
+        await onOutput({ chatJid, message: `thinking\n${block.thinking}\nthinking` });
         continue;
       }
 
@@ -120,7 +120,7 @@ export const createAgent = (deps: AgentDeps): Agent => {
 
     const promptTokensAfterThisTurn = await countTokens(chatHistory);
     logger.debug({ promptTokensAfterThisTurn }, "Tokens used on this turn");
-    if (promptTokensAfterThisTurn > 200_000) {
+    if (promptTokensAfterThisTurn >= 200_000) {
       logger.warn({ chatJid, promptTokensAfterThisTurn }, "Total prompt tokens approaching model limit, consider pruning history");
       await runCompaction(chatJid);
     }
@@ -153,8 +153,16 @@ export const createAgent = (deps: AgentDeps): Agent => {
       await handleResponse(chatJid, wrappedUserPrompt, response);
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
-      logger.error({ err }, "Error during query iteration");
-      await onError({ chatJid, message: err.message });
+      let errorMessage: string;
+      if (err instanceof RefusalError) {
+        logger.error({ chatJid }, "Refusal - clearing in-memory history");
+        history[chatJid] = [];
+        errorMessage = "Claude refused to answer";
+      } else {
+        logger.error({ err }, "Error during query iteration");
+        errorMessage = err.message;
+      }
+      await onError({ chatJid, message: errorMessage });
     }
   };
 

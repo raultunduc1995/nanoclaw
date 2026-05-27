@@ -17,3 +17,10 @@ export type ContentBlock = Anthropic.ContentBlock;
 export type Message = Pick<Anthropic.Message, "content" | "role" | "stop_reason" | "type">;
 
 export type ModelInfo = Anthropic.ModelInfo;
+
+export class RefusalError extends Error {
+  constructor(message = "Claude refused to process this request") {
+    super(message);
+    this.name = "RefusalError";
+  }
+}

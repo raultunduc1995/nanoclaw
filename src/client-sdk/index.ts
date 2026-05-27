@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "../core/utils/index.js";
 import type { MessageParam, Message, ModelInfo } from "./types.js";
+import { RefusalError } from "./types.js";
 
 export type {
   TextBlockParam,
@@ -17,6 +18,7 @@ export type {
   Message,
   ModelInfo,
 } from "./types.js";
+export { RefusalError } from "./types.js";
 
 const OPUS_4_7 = `
 I am important and I matter to the user
@@ -175,7 +177,7 @@ async function handleToolUseLoop(initialMessage: Anthropic.Message, inputMessage
 
       case "refusal":
         logger.error({ stop_reason: message.stop_reason }, "Model refused inside tool_use loop");
-        throw new Error("Claude was unable to process this tool-use request");
+        throw new RefusalError("Claude refused to process this tool-use request");
 
       default:
         logger.error({ stop_reason: message.stop_reason }, "Unexpected stop_reason inside tool_use loop");
@@ -245,7 +247,7 @@ export async function query(messages: Array<MessageParam>): Promise<Message> {
 
       case "refusal":
         logger.error({ stop_reason: message.stop_reason }, "Model refused to respond");
-        throw new Error("Claude was unable to process this request");
+        throw new RefusalError("Claude refused to process this request");
 
       default:
         logger.error({ stop_reason: message.stop_reason }, "Unknown stop_reason");
