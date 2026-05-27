@@ -45,33 +45,30 @@ const initMain = () => {
   groupQueue = createGroupQueue({
     runBee: (input) => {
       let agentInput!: AgentInput;
-      switch (input.kind) {
-        case "text":
-          agentInput = {
-            kind: "text",
-            userName: input.userName,
-            prompt: input.prompt,
-            group: {
-              folder: input.group.folder,
-              name: input.group.name,
-              chatJid: input.jid,
-            },
-          };
-          break;
-        case "image":
-          agentInput = {
-            kind: "image",
-            userName: input.userName,
-            prompt: input.prompt,
-            imageBase64: input.imageBase64,
-            imageMimeType: input.imageMimeType as ImageMimeType,
-            group: {
-              folder: input.group.folder,
-              name: input.group.name,
-              chatJid: input.jid,
-            },
-          };
-          break;
+      if (input.kind === "text") {
+        agentInput = {
+          kind: "text",
+          userName: input.userName,
+          prompt: input.prompt,
+          group: {
+            folder: input.group.folder,
+            name: input.group.name,
+            chatJid: input.jid,
+          },
+        };
+      } else if (input.kind === "image") {
+        agentInput = {
+          kind: "image",
+          userName: input.userName,
+          prompt: input.prompt,
+          imageBase64: input.imageBase64,
+          imageMimeType: input.imageMimeType as ImageMimeType,
+          group: {
+            folder: input.group.folder,
+            name: input.group.name,
+            chatJid: input.jid,
+          },
+        };
       }
 
       return {

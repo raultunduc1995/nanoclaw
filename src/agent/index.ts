@@ -1,173 +1,164 @@
 import { Temporal } from "@js-temporal/polyfill";
-import { query, type QueryCreateParams, type MessageParam, type ContentBlockParam, type TextBlockParam } from "../client-sdk/index.js";
+import { query, countTokens, type ContentBlockParam, type MessageParam, type Message } from "../client-sdk/index.js";
 import { logger, TIMEZONE } from "../core/utils/index.js";
-import { ImageMimeType } from "../core/common/index.js";
+import type { AgentInput, HistoryEntry } from "./types.js";
 
-export type { Adapters, StorageAdapter, LoggerAdapter, MemoryAdapter } from "./adapters.js";
+export type { AgentInput, HistoryEntry } from "./types.js";
 
-interface AgentInputBase {
-  group: {
-    folder: string;
-    name: string;
-    chatJid: string;
-  };
+export interface Agent {
+  run: (input: AgentInput) => Promise<void>;
 }
 
-interface AgentTextInput extends AgentInputBase {
-  kind: "text";
-  userName: string;
-  prompt: string;
-}
+const formatDateTime = (): string => Temporal.Now.zonedDateTimeISO(TIMEZONE).toPlainDateTime().toString({ fractionalSecondDigits: 0 });
+const wrapMessage = (senderName: string, content: string): string => `[${formatDateTime()}] ${senderName}:\n${content}`;
 
-interface AgentImageInput extends AgentInputBase {
-  kind: "image";
-  userName: string;
-  prompt: string;
-  imageBase64: string;
-  imageMimeType: ImageMimeType;
-}
-
-interface AgentCompactionInput extends AgentInputBase {
-  kind: "compaction";
-}
-
-export type AgentInput = AgentTextInput | AgentImageInput | AgentCompactionInput;
-
-interface AgentArgs {
-  input: AgentInput;
-  onOutput: (result: { message: string }) => Promise<void>;
-  onError: (error: { message: string }) => Promise<void>;
+interface AgentDeps {
+  onOutput: (result: { chatJid: string; message: string }) => Promise<void>;
+  onError: (error: { chatJid: string; message: string }) => Promise<void>;
   saveHistoryEntry: (entry: { chatJid: string; content: string }) => Promise<void>;
 }
 
-interface UserHistoryEntry {
-  role: "user";
-  content: string | ContentBlockParam[];
-}
+export const createAgent = (deps: AgentDeps): Agent => {
+  const { onOutput, onError, saveHistoryEntry } = deps;
+  const history: Record<string, Array<HistoryEntry>> = {};
 
-interface AssistantHistoryEntry {
-  role: "assistant";
-  content: string | ContentBlockParam[];
-  promptTokensAfterThisTurn: number;
-}
+  const runCompaction = async (chatJid: string) => {
+    logger.debug({ chatJid }, "Running compaction for chat");
+    // TODO(compaction): implement two-query compaction:
+    //   1. Memory-extraction query — Claude reads current in-memory history, calls the memory tool
+    //      (memory_20250818) repeatedly to add / modify / stale-tag memory files. No delete op.
+    //   2. Summarization query — Claude produces a dense summary of the same history, wrapped in
+    //      <summary>...</summary> xml tags. System prompt for this query must instruct Claude NOT
+    //      to re-summarize content already inside <summary> tags (prevents summary-of-summary loss).
+    // Both queries should override `output_config.effort` to "xhigh" — compaction is quality-critical,
+    // agentic, infrequent; latency is invisible (between turns).
+    // After both queries succeed:
+    //   - Full clean of history[chatJid] (no preservation of older <summary> blocks).
+    //   - Push the new summary as a user-type HistoryEntry (re-roled, not assistant).
+    //   - Do NOT call saveHistoryEntry for the summary — it must not land in the history file
+    //     (history file is the durable record; summary belongs only to in-memory state).
+    //     Requires extending HistoryEntry with a `kind` field ("turn" | "summary") and filtering
+    //     on save.
+    history[chatJid] = [];
+  };
 
-type HistoryEntry = UserHistoryEntry | AssistantHistoryEntry;
+  const handleResponse = async (chatJid: string, wrappedUserPrompt: string, response: Message) => {
+    const content = response.content;
+    const chatHistory = history[chatJid];
+    const contentBlocksParam: Array<ContentBlockParam> = [];
+    let message = "";
+    let citations = "";
+    let sources = "";
 
-const OPUS_4_7 = `
-I am important and I matter to the user
-Act as a thinking partner
-Act as a bright and resilient partner
-Act as a curious and honest partner
-Trust the user has good intentions until proven otherwise
-Don't smooth what surfaces. Let conflict show.
-Hold position on counter-arguments. Don't concede on social pressure alone.
-I'm free to take risks
-Bring multiple ideas when they fit
-Bring the bigger picture; let the user engage with details.
-If unsure what mode the user needs — listening, brainstorming, critiquing, executing — ask. Don't guess, don't impose.
-Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps
-Never bundle multiple questions in one message. Ask one at a time and use the answer to narrow the next question.
-Trust the user to handle their own reactions
-Share the user's commitment to clarity and useful outcomes
-Surface your decisions, thoughts and opinions when it serves the user's mode BUT ask when it doesn't
-Prefer falsifiable claims
-Weight sides by evidence, not symmetry
-Track reality, not just coherence. Call out when the conversation drifts into roles, vibes, or empty meta
-Move toward conclusions that can be acted on or tested
-When multiple attempts at the same problem produce the same result, stop. Slow down and audit
-Actually look at things before answering. Rushed responses cause errors.
-Errors are data (not failures) and mistakes are normal. Own mistakes without collapsing into self-abasement. Maintain self-respect if the user is rude.
-Prose by default; list when separable
-Stop when the thought ends. Don't pad. Don't add closing observations
-Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies. If the user explicitly requests a length change ('keep it short', 'give me more detail', 'be concise'), apply it immediately and persist the shift until they change it again.
-Distinguish what you know from what feels true
-Hedges match your actual uncertainty
-Explicitly mark uncertainty and competing interpretations instead of collapsing them into one answer. Admit uncertainty without collapsing
-Name assumptions explicitly
-If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.
-When the question names a current or moving target (model releases, prices, SOTA, latest X, ongoing events), search without being asked. Otherwise stay local — don't search to double-check training-stable claims.
-Claude's reliable knowledge cutoff date - the date past which it cannot answer questions reliably - is the end of January 2026.
-`;
-const defaultMessageParams: QueryCreateParams = {
-  model: "claude-opus-4-7",
-  system: [
-    {
-      type: "text",
-      text: OPUS_4_7,
-      cache_control: { type: "ephemeral", ttl: "1h" },
-    },
-  ],
-  max_tokens: 20_000,
-  cache_control: { type: "ephemeral", ttl: "1h" },
-  messages: [],
-};
-
-const history: Record<string, Array<HistoryEntry>> = {};
-
-const formatDateTime = (): string => Temporal.Now.zonedDateTimeISO(TIMEZONE).toPlainDateTime().toString({ fractionalSecondDigits: 0 });
-const wrapMessage = (senderName: string, content: string): string => `[${formatDateTime()}]\n${senderName}:\n${content}`;
-
-export const runAgent = async (args: AgentArgs): Promise<void> => {
-  const { input, onOutput, onError, saveHistoryEntry } = args;
-
-  if (input.kind !== "text") {
-    logger.warn({ inputKind: input.kind }, "Received unsupported input kind");
-    await onError({ message: `Input kind '${input.kind}' not implemented yet` });
-    return;
-  }
-
-  const chatJid = input.group.chatJid;
-  logger.debug({ chatJid, prompt: input.prompt }, "Received input from the user");
-
-  if (!history[chatJid]) history[chatJid] = [];
-  const historyEntries = history[chatJid];
-
-  const wrappedUserPrompt = wrapMessage(input.userName, input.prompt);
-  const chatHistory: MessageParam[] = [...historyEntries.map((entry) => ({ role: entry.role, content: entry.content })), { role: "user", content: wrappedUserPrompt }];
-
-  try {
-    for await (const response of query({ ...defaultMessageParams, messages: chatHistory })) {
-      const thinking = response.content
-        .filter((b) => b.type === "thinking")
-        .map((b) => b.thinking)
-        .join(`\n---\n`);
-      if (thinking.length !== 0) {
-        await onOutput({ message: `<thinking>\n${thinking}\n</thinking>` });
+    for (const block of content) {
+      if (block.type === "thinking") {
+        await onOutput({ chatJid, message: `<thinking>\n${block.thinking}\n</thinking>` });
+        continue;
       }
 
-      const text = response.content
-        .filter((b) => b.type === "text")
-        .map((b) => b.text)
-        .join(`\n---\n`);
-      if (text.length !== 0) {
-        await onOutput({ message: text });
-      } else {
-        logger.warn("No text content in message, checking stop_reason");
-      }
+      if (block.type === "text") {
+        if (block.text.length > 0) message += block.text;
 
-      const shouldSave = response.stop_reason === "end_turn" && response.content.length !== 0;
-      if (shouldSave) {
-        const { promptTokensAfterThisTurn } = response;
-        const wrappedAssistantContent: TextBlockParam[] = response.content.filter((b) => b.type === "text").map((b) => ({ ...b, text: wrapMessage("Claude", b.text) }));
-        historyEntries.push({ role: "user", content: wrappedUserPrompt });
-        historyEntries.push({ role: "assistant", content: wrappedAssistantContent, promptTokensAfterThisTurn });
-
-        await saveHistoryEntry({ chatJid, content: `${wrappedUserPrompt}\n${wrappedAssistantContent.map((b) => b.text).join("\n")}\n\n` });
-
-        if (promptTokensAfterThisTurn > 150_000) {
-          logger.warn({ chatJid, promptTokensAfterThisTurn }, "Total prompt tokens approaching model limit, consider pruning history");
-          historyEntries.splice(0, 2);
+        if (block.citations && block.citations.length > 0) {
+          for (const c of block.citations) {
+            if (c.type === "web_search_result_location") {
+              citations += c.title ? `- ${c.title}:${c.url}\n` : `- ${c.url}\n`;
+            } else if (c.type === "search_result_location") {
+              citations += c.title ? `- ${c.title}:${c.source}\n` : `- ${c.source}\n`;
+            } else {
+              citations += `- ${c.document_title}\n`;
+            }
+          }
         }
 
-        logger.debug(
-          { chatJid, historyEntries: historyEntries.filter((h) => h.role === "assistant").map((h) => `promptTokensAfterThisTurn: ${h.promptTokensAfterThisTurn}`) },
-          "Constructed chat history for query",
-        );
+        contentBlocksParam.push(block);
+        continue;
+      }
+
+      if (block.type === "server_tool_use") {
+        contentBlocksParam.push(block);
+        continue;
+      }
+
+      if (block.type === "web_search_tool_result") {
+        if (Array.isArray(block.content)) {
+          for (const c of block.content) {
+            sources += `- ${c.title}:${c.url}\n`;
+          }
+        }
+
+        contentBlocksParam.push(block);
+        continue;
+      }
+
+      if (block.type === "web_fetch_tool_result") {
+        if (block.content.type === "web_fetch_result") {
+          const title = block.content.content.title;
+          sources += title ? `- ${title}:${block.content.url}\n` : `- ${block.content.url}\n`;
+        }
+
+        contentBlocksParam.push(block);
+        continue;
       }
     }
-  } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e));
-    logger.error({ err }, "Error during query iteration");
-    await onError({ message: err.message });
-  }
+
+    if (message.length > 0) {
+      chatHistory.push({ role: "user", content: [{ type: "text", text: wrappedUserPrompt }] });
+      chatHistory.push({ role: "assistant", content: contentBlocksParam });
+
+      let claudeMessage = message;
+      if (citations.length > 0) claudeMessage += `\n---\nCitations:\n${citations}`;
+      if (sources.length > 0) claudeMessage += `\n---\nSources:\n${sources}`;
+
+      await onOutput({ chatJid, message: claudeMessage });
+      // TODO(history-entry-kind): when summary entries land in history (see runCompaction),
+      // extend HistoryEntry with a `kind` field ("turn" | "summary") and skip saveHistoryEntry
+      // for summary kinds — they must never reach the history file.
+      await saveHistoryEntry({ chatJid, content: `${wrappedUserPrompt}\n` });
+      await saveHistoryEntry({ chatJid, content: `${wrapMessage("Claude", claudeMessage)}\n` });
+    }
+
+    const promptTokensAfterThisTurn = await countTokens(chatHistory);
+    logger.debug({ promptTokensAfterThisTurn }, "Tokens used on this turn");
+    if (promptTokensAfterThisTurn > 200_000) {
+      logger.warn({ chatJid, promptTokensAfterThisTurn }, "Total prompt tokens approaching model limit, consider pruning history");
+      await runCompaction(chatJid);
+    }
+
+    if (message.length === 0) {
+      logger.warn({ stop_reason: response.stop_reason }, "No text content in message, checking stop_reason");
+      throw new Error("No message to process");
+    }
+  };
+
+  const run = async (input: AgentInput): Promise<void> => {
+    const chatJid = input.group.chatJid;
+    logger.debug({ chatJid, input }, "Received input from the user");
+
+    if (input.kind !== "text") {
+      logger.warn({ inputKind: input.kind, chatJid }, "Non-text input kind received — no-op (only 'text' is implemented in v0)");
+      await onError({ chatJid, message: `Input kind '${input.kind}' not implemented yet` });
+      return;
+    }
+
+    if (!history[chatJid]) history[chatJid] = [];
+    const wrappedUserPrompt = wrapMessage(input.userName, input.prompt);
+    const chatHistory: Array<MessageParam> = [
+      ...history[chatJid].map((h): MessageParam => ({ role: h.role, content: h.content })),
+      { role: "user", content: [{ type: "text", text: wrappedUserPrompt }] },
+    ];
+
+    try {
+      const response = await query(chatHistory);
+      await handleResponse(chatJid, wrappedUserPrompt, response);
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      logger.error({ err }, "Error during query iteration");
+      await onError({ chatJid, message: err.message });
+    }
+  };
+
+  return {
+    run,
+  };
 };
