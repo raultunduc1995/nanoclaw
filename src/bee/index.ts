@@ -287,11 +287,7 @@ const getDefaultOptions = (agentInput: AgentInput): Options => ({
   hooks: buildSystemPromptReinjectionHooks(agentInput.chatJid),
 });
 
-const mainJids = [
-  "5183908292", // android
-  "5137641479", // udacity-teacher
-  "5245832331", // backend
-];
+const mainJids: string[] = [];
 
 const isMain = (chatJid: string): boolean => mainJids.some((id) => chatJid.includes(id));
 

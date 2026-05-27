@@ -4,18 +4,17 @@ import { ImageMimeType } from "./common/index.js";
 
 interface GroupDataBase {
   jid: string;
+  userName: string;
   group: RegisteredGroup;
 }
 
 interface GroupTextData extends GroupDataBase {
   kind: "text";
-  userName: string;
   prompt: string;
 }
 
 interface GroupImageData extends GroupDataBase {
   kind: "image";
-  userName: string;
   prompt: string;
   imageBase64: string;
   imageMimeType: ImageMimeType;

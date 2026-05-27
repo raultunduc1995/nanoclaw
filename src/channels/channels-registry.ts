@@ -8,7 +8,7 @@ export interface ChannelsRegistry {
   disconnectAll: () => Promise<void>;
 }
 
-const channelsRegistry = ((): ChannelsRegistry => {
+export const createChannelsRegistry = (): ChannelsRegistry => {
   const channels = new Map<"telegram", Channel>();
 
   return {
@@ -39,6 +39,4 @@ const channelsRegistry = ((): ChannelsRegistry => {
       }
     },
   };
-})();
-
-export default channelsRegistry;
+};

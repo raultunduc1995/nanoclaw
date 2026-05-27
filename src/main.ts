@@ -3,22 +3,84 @@ import path from "path";
 
 import { logger, HISTORY_DIR } from "./core/utils/index.js";
 import { createGroupQueue, type GroupQueue } from "./core/group-queue.js";
-import channelsRegistry, { type TelegramChannelOpts } from "./channels/index.js";
+import { createChannelsRegistry, type ChannelsRegistry, type TelegramChannelOpts } from "./channels/index.js";
 import { initLocalDatabase } from "./core/db/index.js";
 import { createGroupsRepository, type GroupsRepository } from "./core/repositories/index.js";
 // import { startVoiceServer } from "./voice/index.js";
-import { runAgent, type AgentInput } from "./agent/index.js";
+import { createAgent, type Agent, type AgentInput } from "./agent/index.js";
 import { ImageMimeType } from "./core/common/index.js";
 
 mkdirSync(HISTORY_DIR, { recursive: true });
 
-const saveHistoryEntry = async ({ chatJid, content }: { chatJid: string; content: string }): Promise<void> => {
-  const filePath = path.join(HISTORY_DIR, `${chatJid.replace(/:/g, "_")}.txt`);
-  appendFileSync(filePath, content);
-};
-
 let groupsRepo: GroupsRepository;
+let channelsRegistry: ChannelsRegistry;
+let agent: Agent;
 let groupQueue: GroupQueue;
+
+const initMain = () => {
+  channelsRegistry = createChannelsRegistry();
+
+  const localResource = initLocalDatabase();
+  groupsRepo = createGroupsRepository(localResource.groups);
+
+  agent = createAgent({
+    onOutput: async ({ chatJid, message }) => {
+      const channel = channelsRegistry.findChannel(chatJid);
+      if (channel) {
+        await channel.sendMessage(chatJid, message);
+      }
+    },
+    onError: async ({ chatJid, message }) => {
+      const channel = channelsRegistry.findChannel(chatJid);
+      if (channel) {
+        await channel.sendMessage(chatJid, `Error: ${message}`);
+      }
+    },
+    saveHistoryEntry: async ({ chatJid, content }) => {
+      const filePath = path.join(HISTORY_DIR, `${chatJid.replace(/:/g, "_")}.txt`);
+      appendFileSync(filePath, content);
+    },
+  });
+
+  groupQueue = createGroupQueue({
+    runBee: (input) => {
+      let agentInput!: AgentInput;
+      switch (input.kind) {
+        case "text":
+          agentInput = {
+            kind: "text",
+            userName: input.userName,
+            prompt: input.prompt,
+            group: {
+              folder: input.group.folder,
+              name: input.group.name,
+              chatJid: input.jid,
+            },
+          };
+          break;
+        case "image":
+          agentInput = {
+            kind: "image",
+            userName: input.userName,
+            prompt: input.prompt,
+            imageBase64: input.imageBase64,
+            imageMimeType: input.imageMimeType as ImageMimeType,
+            group: {
+              folder: input.group.folder,
+              name: input.group.name,
+              chatJid: input.jid,
+            },
+          };
+          break;
+      }
+
+      return {
+        pipe: () => logger.warn("pipe() called but streaming is not implemented in client-sdk-bee yet"),
+        done: agent.run(agentInput),
+      };
+    },
+  });
+};
 
 const registerCleanupHandlers = () => {
   const shutdown = async (signal: string) => {
@@ -30,57 +92,6 @@ const registerCleanupHandlers = () => {
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
-};
-
-const initRepos = () => {
-  const localResource = initLocalDatabase();
-  groupsRepo = createGroupsRepository(localResource.groups);
-};
-
-const initMain = () => {
-  initRepos();
-  groupQueue = createGroupQueue({
-    runBee: (input) => {
-      if (input.kind !== "text") {
-        logger.warn({ kind: input.kind, jid: input.jid }, "Non-text input kind received — no-op (only 'text' is implemented in v0)");
-        return { pipe: () => {}, done: Promise.resolve() };
-      }
-
-      const agentInput: AgentInput = {
-        kind: "text",
-        userName: input.userName,
-        prompt: input.prompt,
-        group: {
-          folder: input.group.folder,
-          name: input.group.name,
-          chatJid: input.jid,
-        },
-      };
-
-      const done = (async () => {
-        const channel = channelsRegistry.findChannel(agentInput.group.chatJid);
-        await runAgent({
-          input: agentInput,
-          onOutput: async ({ message }) => {
-            if (channel) {
-              await channel.sendMessage(agentInput.group.chatJid, message);
-            }
-          },
-          onError: async ({ message }) => {
-            if (channel) {
-              await channel.sendMessage(agentInput.group.chatJid, `Error: ${message}`);
-            }
-          },
-          saveHistoryEntry,
-        });
-      })();
-
-      return {
-        pipe: () => logger.warn("pipe() called but streaming is not implemented in client-sdk-bee yet"),
-        done,
-      };
-    },
-  });
 };
 
 const registerChannels = async () => {
@@ -128,8 +139,8 @@ const registerChannels = async () => {
 // };
 
 export const main = async () => {
-  registerCleanupHandlers();
   initMain();
+  registerCleanupHandlers();
   await registerChannels();
   // startVoice();
 };

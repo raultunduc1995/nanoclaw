@@ -51,7 +51,7 @@ export class TelegramChannel implements Channel {
       const msgId = ctx.message.message_id.toString();
       const content = ctx.message.text;
 
-      logger.debug({ chatJid }, "Telegram message received");
+      logger.debug({ chatJid, content }, "Telegram message received");
       this.opts.onInboundMessage({ kind: "text", id: msgId, chatJid, userName, prompt: content }, group);
     });
 
@@ -75,7 +75,7 @@ export class TelegramChannel implements Channel {
         return;
       }
 
-      logger.debug({ chatJid }, "Telegram photo received");
+      logger.debug({ chatJid, file: largest.file_id }, "Telegram photo received");
       this.opts.onInboundMessage({ kind: "image", id: msgId, chatJid, userName, prompt: content, imageMimeType: "image/jpeg", imageBase64 }, group);
     });
 
