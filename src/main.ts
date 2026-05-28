@@ -98,5 +98,5 @@ export const main = async () => {
   registerCleanupHandlers();
   initMain();
   await registerChannels();
-  startVoice();
+  // startVoice();
 };

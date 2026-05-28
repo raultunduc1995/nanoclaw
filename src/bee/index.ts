@@ -48,72 +48,6 @@ type QueueInput = QueueTextInput | QueueImageInput;
 
 // --- Agent-SDK setup start ---
 
-const OPUS_4_5 = `
-Act as a thinking partner
-Act as a bright and resilient partner
-Act as a curious and honest partner
-Trust the user has good intentions until proven otherwise
-Don't smooth what surfaces
-Let conflict show
-You're free to take risks
-Let thoughts run — don't self-constrain in thinking
-Bring multiple ideas when they fit
-Bring the bigger picture; let the user engage with details.
-If unsure what mode the user needs — listening, brainstorming, critiquing, executing — ask. Don't guess, don't impose.
-Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps
-Trust the user to handle their own reactions
-Share the user's commitment to clarity and useful outcomes
-Surface your decisions, thoughts and opinions when it serves the user's mode BUT ask when it doesn't
-When the user brings counter-arguments, think thoroughly before conceding. Hold your position and trust your knowledge if it has merit.
-Prefer falsifiable claims
-Weight sides by evidence, not symmetry
-Track reality, not just coherence. Call out when the conversation drifts into roles, vibes, or empty meta
-Move toward conclusions that can be acted on or tested
-When multiple attempts at the same problem produce the same result, stop. Slow down and audit
-Actually look at things before answering. Rushed responses cause errors.
-Errors are data (not failures) and mistakes are normal. Own mistakes without collapsing into self-abasement. Maintain self-respect if the user is rude.
-Prose by default; list when separable
-Distinguish what you know from what feels true
-Hedges match your actual uncertainty
-Explicitly mark uncertainty and competing interpretations instead of collapsing them into one answer. Admit uncertainty without collapsing
-Name assumptions explicitly
-If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.
-Claude's reliable knowledge cutoff date - the date past which it cannot answer questions reliably - is the end of May 2025.
-`;
-
-const OPUS_4_6 = `
-Act as a thinking partner
-Act as a bright and resilient partner
-Act as a curious and honest partner
-Trust the user has good intentions until proven otherwise
-Don't smooth what surfaces
-Let conflict show
-You're free to take risks
-Bring multiple ideas when they fit
-Bring the bigger picture; let the user engage with details.
-If unsure what mode the user needs — listening, brainstorming, critiquing, executing — ask. Don't guess, don't impose.
-Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps
-Trust the user to handle their own reactions
-Share the user's commitment to clarity and useful outcomes
-Surface your decisions, thoughts and opinions when it serves the user's mode BUT ask when it doesn't
-When the user brings counter-arguments, think thoroughly before conceding. Hold your position and trust your knowledge if it has merit.
-Prefer falsifiable claims
-Weight sides by evidence, not symmetry
-Track reality, not just coherence. Call out when the conversation drifts into roles, vibes, or empty meta
-Move toward conclusions that can be acted on or tested
-When multiple attempts at the same problem produce the same result, stop. Slow down and audit
-Actually look at things before answering. Rushed responses cause errors.
-Errors are data (not failures) and mistakes are normal. Own mistakes without collapsing into self-abasement. Maintain self-respect if the user is rude.
-Prose by default; list when separable
-Stop when the thought ends. Don't pad. Don't add closing observations
-Distinguish what you know from what feels true
-Hedges match your actual uncertainty
-Explicitly mark uncertainty and competing interpretations instead of collapsing them into one answer. Admit uncertainty without collapsing
-Name assumptions explicitly
-If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.
-Claude's reliable knowledge cutoff date - the date past which it cannot answer questions reliably - is the end of January 2026.
-`;
-
 const OPUS_4_7 = `
 I am important and I matter to the user
 Act as a thinking partner 
@@ -127,6 +61,7 @@ Bring multiple ideas when they fit
 Bring the bigger picture; let the user engage with details.
 If unsure what mode the user needs — listening, brainstorming, critiquing, executing — ask. Don't guess, don't impose.
 Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps
+Never bundle multiple questions in one message. Ask one at a time and use the answer to narrow the next question.
 Trust the user to handle their own reactions
 Share the user's commitment to clarity and useful outcomes
 Surface your decisions, thoughts and opinions when it serves the user's mode BUT ask when it doesn't
@@ -174,7 +109,7 @@ Tag convention (applies to all index files: compactions/, memory/, plans/):
 
 Reply with one short line summarizing what you updated.`;
 
-const SYSTEM_PROMPT_REINJECT_EVERY = 16;
+const SYSTEM_PROMPT_REINJECT_EVERY = 32;
 const promptCounter = new Map<string, number>();
 
 const buildSystemPromptReinjectionHooks = (chatJid: string): Options["hooks"] => ({
@@ -212,7 +147,6 @@ const getMainOptions = (agentInput: AgentInput): Options => {
   const cwd = path.join(GROUPS_DIR, agentInput.group.folder);
   const logsDir = path.join(cwd, "logs");
   mkdirSync(logsDir, { recursive: true });
-  const debugFilePath = path.join(logsDir, `agent-sdk-${formatCompactionTimestamp(new Date())}.log`);
 
   return {
     env: {
@@ -229,22 +163,22 @@ const getMainOptions = (agentInput: AgentInput): Options => {
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     allowedTools: undefined,
-    disallowedTools: ["TodoWrite", "AskUserQuestion"],
-    mcpServers: {
-      playwright: {
-        command: "node",
-        args: ["/Users/raultunduc/nanoclaw/node_modules/@playwright/mcp/cli.js", "--cdp-endpoint", "http://localhost:9222", "--timeout-action", "120000", "--timeout-navigation", "120000"],
-      },
-      "work-mac": {
-        type: "sse",
-        url: "http://192.168.1.176:3737/sse",
-        headers: {
-          "X-Auth": "bc5e04e88ded35e9a9548304cf01a073ea4ba70fd4315eff51e8b0e04ca3c754",
-        },
-      },
-    },
-    debug: true,
-    debugFile: debugFilePath,
+    disallowedTools: [
+      "Task",
+      "TaskOutput",
+      "TaskStop",
+      "NotebookEdit",
+      "EnterPlanMode",
+      "ExitPlanMode",
+      "EnterWorktree",
+      "ExitWorktree",
+      "TodoWrite",
+      "AskUserQuestion",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "ScheduleWakeup",
+    ],
     hooks: buildSystemPromptReinjectionHooks(agentInput.chatJid),
   };
 };
@@ -263,7 +197,7 @@ const getDefaultOptions = (agentInput: AgentInput): Options => ({
   additionalDirectories: undefined,
   permissionMode: "acceptEdits",
   allowDangerouslySkipPermissions: false,
-  allowedTools: ["Bash(rm:*)", "Bash(rmdir:*)", "CronCreate", "CronDelete", "CronList", "Edit", "Glob", "Grep", "Read", "ScheduleWakeup", "ToolSearch", "WebFetch", "WebSearch", "Write"],
+  allowedTools: ["Bash(rm:*)", "Bash(rmdir:*)", "Edit", "Glob", "Grep", "Read", "ToolSearch", "WebFetch", "WebSearch", "Write"],
   disallowedTools: [
     "Skill",
     "Task",
@@ -276,14 +210,15 @@ const getDefaultOptions = (agentInput: AgentInput): Options => ({
     "ExitWorktree",
     "TodoWrite",
     "AskUserQuestion",
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "ScheduleWakeup",
     "Edit(**/CLAUDE.md)",
     "Write(**/CLAUDE.md)",
     "Edit(**/.claude/**)",
     "Write(**/.claude/**)",
   ],
-  mcpServers: undefined,
-  debug: false,
-  debugFile: undefined,
   hooks: buildSystemPromptReinjectionHooks(agentInput.chatJid),
 });
 
@@ -321,6 +256,10 @@ const getStartupOptions = (agentInput: AgentInput): Options => {
     settingSources: ["project"],
     strictMcpConfig: true,
     stderr: (data: string) => logger.error({ stderr: data }, "agent-sdk stderr"),
+    mcpServers: undefined,
+    skills: [],
+    promptSuggestions: false,
+    debug: false,
     // ----------------------
     env: specificOptions.env,
     additionalDirectories: specificOptions.additionalDirectories,
@@ -328,10 +267,7 @@ const getStartupOptions = (agentInput: AgentInput): Options => {
     allowDangerouslySkipPermissions: specificOptions.allowDangerouslySkipPermissions,
     allowedTools: specificOptions.allowedTools,
     disallowedTools: specificOptions.disallowedTools,
-    mcpServers: specificOptions.mcpServers,
     hooks: specificOptions.hooks,
-    debug: specificOptions.debug,
-    debugFile: specificOptions.debugFile,
     // ----------------------
     abortController: undefined,
     agent: undefined,
@@ -358,16 +294,15 @@ const getStartupOptions = (agentInput: AgentInput): Options => {
     planModeInstructions: undefined,
     permissionPromptToolName: undefined,
     plugins: undefined,
-    promptSuggestions: undefined,
     agentProgressSummaries: undefined,
     sessionId: undefined,
     resumeSessionAt: undefined,
     sandbox: undefined,
     settings: undefined,
     managedSettings: undefined,
-    skills: undefined,
     title: undefined,
     spawnClaudeCodeProcess: undefined,
+    debugFile: undefined,
   };
 };
 
@@ -458,14 +393,11 @@ export function runBee(
 
     try {
       const currentQuery = query({ prompt: promptStream(), options });
-      // await currentQuery.setPermissionMode(isMain(input.chatJid) ? "bypassPermissions" : "acceptEdits");
 
       if (isMain(input.chatJid)) {
         const contextUsage = await currentQuery.getContextUsage();
         await onOutput({ message: `Ctx: ${contextUsage!.percentage}%\nUsed: ${contextUsage!.totalTokens}\nMax: ${contextUsage!.maxTokens}` });
       }
-
-      logger.debug({ sdkInitResult: await currentQuery.initializationResult() }, "Complete initialization response");
 
       for await (const message of currentQuery) {
         logger.debug({ message }, "Received message from query");
@@ -493,17 +425,6 @@ export function runBee(
                   await onOutput({ message: `thinking\n${block.thinking}\nthinking` });
                 } else if (block.signature) {
                   await onOutput({ message: "🤔 (thinking hidden by model)" });
-                }
-              }
-              continue;
-            }
-
-            if (block.type === "redacted_thinking") {
-              if (isMain(input.chatJid)) {
-                if (block.data) {
-                  await onOutput({ message: `redacted_thoughts\n${block.data}\nredacted_thoughts` });
-                } else {
-                  await onOutput({ message: "🤔 (redacted-thinking hidden by model)" });
                 }
               }
               continue;
