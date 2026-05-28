@@ -240,7 +240,7 @@ const getStartupOptions = (agentInput: AgentInput): Options => {
 
   return {
     systemPrompt: OPUS_4_7,
-    model: "claude-opus-4-7",
+    model: "claude-opus-4-8",
     effort: "medium",
     thinking: {
       type: "adaptive",
