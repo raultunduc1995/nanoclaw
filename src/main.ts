@@ -1,7 +1,4 @@
-import { appendFileSync, mkdirSync } from "fs";
-import path from "path";
-
-import { logger, HISTORY_DIR } from "./core/utils/index.js";
+import { logger } from "./core/utils/index.js";
 import { createGroupQueue, type GroupQueue } from "./core/group-queue.js";
 import { createChannelsRegistry, type ChannelsRegistry, type TelegramChannelOpts } from "./channels/index.js";
 import { initLocalDatabase } from "./core/db/index.js";
@@ -9,8 +6,6 @@ import { createGroupsRepository, type GroupsRepository } from "./core/repositori
 // import { startVoiceServer } from "./voice/index.js";
 import { createAgent, type Agent, type AgentInput } from "./agent/index.js";
 import { ImageMimeType } from "./core/common/index.js";
-
-mkdirSync(HISTORY_DIR, { recursive: true });
 
 let groupsRepo: GroupsRepository;
 let channelsRegistry: ChannelsRegistry;
@@ -36,10 +31,6 @@ const initMain = () => {
         await channel.sendMessage(chatJid, `Error: ${message}`);
       }
     },
-    saveHistoryEntry: async ({ chatJid, content }) => {
-      const filePath = path.join(HISTORY_DIR, `${chatJid.replace(/:/g, "_")}.txt`);
-      appendFileSync(filePath, content);
-    },
   });
 
   groupQueue = createGroupQueue({
@@ -50,11 +41,7 @@ const initMain = () => {
           kind: "text",
           userName: input.userName,
           prompt: input.prompt,
-          group: {
-            folder: input.group.folder,
-            name: input.group.name,
-            chatJid: input.jid,
-          },
+          group: input.group,
         };
       } else if (input.kind === "image") {
         agentInput = {
@@ -63,11 +50,7 @@ const initMain = () => {
           prompt: input.prompt,
           imageBase64: input.imageBase64,
           imageMimeType: input.imageMimeType as ImageMimeType,
-          group: {
-            folder: input.group.folder,
-            name: input.group.name,
-            chatJid: input.jid,
-          },
+          group: input.group,
         };
       }
 

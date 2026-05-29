@@ -73,6 +73,7 @@ function createTestOpts(overrides?: Partial<TelegramChannelOpts>): TelegramChann
     registerNewGroup: vi.fn(),
     getRegisteredGroups: vi.fn(() => ({
       "tg:100200300": {
+        jid: "tg:100200300",
         name: "Test Group",
         folder: "test-group",
         addedAt: "2024-01-01T00:00:00.000Z",
@@ -264,6 +265,7 @@ describe("TelegramChannel", () => {
       const opts = createTestOpts({
         getRegisteredGroups: vi.fn(() => ({
           "tg:100200300": {
+            jid: "tg:100200300",
             name: "Private",
             folder: "private",
             addedAt: "2024-01-01T00:00:00.000Z",

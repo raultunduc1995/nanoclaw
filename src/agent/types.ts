@@ -1,14 +1,11 @@
-import type { ServerToolUseBlockParam, TextBlockParam, WebFetchToolResultBlockParam, WebSearchToolResultBlockParam } from "../client-sdk/index.js";
+import type { ContentBlockParam } from "../client-sdk/index.js";
 import type { ImageMimeType } from "../core/common/index.js";
+import { RegisteredGroup } from "../core/repositories/groups-repository.js";
 
 interface AgentInputBase {
   userName: string;
   prompt: string;
-  group: {
-    folder: string;
-    name: string;
-    chatJid: string;
-  };
+  group: Pick<RegisteredGroup, "jid" | "folder">;
 }
 interface AgentTextInput extends AgentInputBase {
   kind: "text";
@@ -19,14 +16,9 @@ interface AgentImageInput extends AgentInputBase {
   imageMimeType: ImageMimeType;
 }
 
-interface UserHistoryEntry {
-  role: "user";
-  content: Array<TextBlockParam>;
-}
-interface AssistantHistoryEntry {
-  role: "assistant";
-  content: Array<TextBlockParam | ServerToolUseBlockParam | WebSearchToolResultBlockParam | WebFetchToolResultBlockParam>;
-}
-
 export type AgentInput = AgentTextInput | AgentImageInput;
-export type HistoryEntry = UserHistoryEntry | AssistantHistoryEntry;
+
+export type HistoryEntry = {
+  role: "user" | "assistant";
+  content: Array<ContentBlockParam>;
+};

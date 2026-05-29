@@ -30,7 +30,7 @@ export interface ChannelOpts {
   onInboundMessage: (message: InboundMessage, group: RegisteredGroup) => void;
 
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
-  registerNewGroup: (jid: string, group: RegisteredGroup) => void;
+  registerNewGroup: (jid: string, group: Omit<RegisteredGroup, "jid">) => void;
 }
 
 export interface Channel {

@@ -10,6 +10,7 @@ import { assertValidGroupFolder, ensureWithinBase } from "../utils/index.js";
 // --- Types and interfaces ---
 
 export interface RegisteredGroup {
+  jid: string;
   name: string;
   folder: string;
   addedAt: string;
@@ -22,7 +23,7 @@ export interface GroupsRepository {
   getAllAsRecord: () => Record<string, RegisteredGroup>;
   getAllJids: () => Set<string>;
   getByJid: (jid: string) => RegisteredGroup | undefined;
-  register: (jid: string, group: RegisteredGroup) => void;
+  register: (jid: string, group: Omit<RegisteredGroup, "jid">) => void;
   updateSessionId: (jid: string, sessionId: string) => void;
 }
 
@@ -46,7 +47,7 @@ export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRep
     register: (jid, group) => {
       logger.debug({ jid, name: group.name, folder: group.folder }, "Register group...");
       const groupDir = resolveGroupFolderPath(group.folder);
-      saveGroup(jid, group);
+      saveGroup(jid, { ...group, jid });
       createGroupDirectory(groupDir);
     },
 
@@ -63,6 +64,7 @@ export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRep
 // --- Conversion functions between GroupRow and RegisteredGroup ---
 
 const toRegisteredGroup = (row: GroupRow): RegisteredGroup => ({
+  jid: row.jid,
   name: row.name,
   folder: row.folder,
   addedAt: row.added_at,
