@@ -7,9 +7,12 @@ import { STORE_DIR, logger } from "../utils/index.js";
 import { createSchema } from "./schema.js";
 import { createGroupsLocalResource } from "./resources/groups.js";
 import type { GroupsLocalResource } from "./resources/groups.js";
+import { createHistoryLocalResource } from "./resources/history.js";
+import type { HistoryLocalResource } from "./resources/history.js";
 
 export interface LocalResource {
   groups: GroupsLocalResource;
+  history: HistoryLocalResource;
   close(): void;
 }
 
@@ -18,6 +21,7 @@ function createLocalResource(db: Database.Database): LocalResource {
 
   return {
     groups: createGroupsLocalResource(db),
+    history: createHistoryLocalResource(db),
     close: () => db.close(),
   };
 }

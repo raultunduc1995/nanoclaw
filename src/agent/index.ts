@@ -17,13 +17,21 @@ const wrapMessage = (senderName: string, content: string): string => `[${formatD
 interface AgentDeps {
   onOutput: (result: { chatJid: string; message: string }) => Promise<void>;
   onError: (error: { chatJid: string; message: string }) => Promise<void>;
+  loadHistory: (jid: string) => HistoryEntry[];
+  appendHistory: (jid: string, seq: number, entry: HistoryEntry) => void;
+  deleteHistoryFrom: (jid: string, fromSeq: number) => void;
+  clearHistory: (jid: string) => void;
 }
 
 export const createAgent = (deps: AgentDeps): Agent => {
   const { onOutput, onError } = deps;
-  const history: Record<string, Array<HistoryEntry>> = {};
 
-  const runCompaction = async (chatJid: string, group: Pick<RegisteredGroup, "folder">) => {
+  const appendToHistory = (chatJid: string, history: Array<HistoryEntry>, entry: HistoryEntry) => {
+    history.push(entry);
+    deps.appendHistory(chatJid, history.length - 1, entry);
+  };
+
+  const runCompaction = async (chatJid: string, history: Array<HistoryEntry>, group: Pick<RegisteredGroup, "folder">) => {
     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 
     const compactionPrompt: HistoryEntry = {
@@ -31,22 +39,34 @@ export const createAgent = (deps: AgentDeps): Agent => {
       content: [
         {
           type: "text",
-          text: "Summarize the entire conversation above into /memories/convo-summary.md. If the file already exists, delete it first, then create it fresh with the new summary. Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation. Write a dense, factual summary. Write the summary in the same language used in the conversation.",
+          text: `
+          Summarize the entire conversation above into /memories/convo-summary.md.
+          If the file already exists, delete it first, then create it fresh with the new summary.
+          Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
+          Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
         },
       ],
     };
 
-    for await (const _turn of query([...history[chatJid], compactionPrompt], group)) {
+    for await (const _turn of query([...history, compactionPrompt], group)) {
+      /* empty */
     }
 
-    history[chatJid] = [];
+    deps.clearHistory(chatJid);
+
+    await run({
+      kind: "text",
+      userName: "System",
+      prompt: "Context was compacted. Read /memories/index.md and /memories/convo-summary.md before your next response.",
+      group: { jid: chatJid, folder: group.folder },
+    });
   };
 
-  const handleResponse = async (chatJid: string, response: QueryTurn) => {
+  const handleResponse = async (chatJid: string, history: Array<HistoryEntry>, response: QueryTurn) => {
     const { role, turn } = response;
 
     if (role === "user") {
-      history[chatJid].push(turn);
+      appendToHistory(chatJid, history, turn);
       return;
     }
 
@@ -112,7 +132,7 @@ export const createAgent = (deps: AgentDeps): Agent => {
       }
     }
 
-    history[chatJid].push({ role: "assistant", content: contentBlocksParam });
+    appendToHistory(chatJid, history, { role: "assistant", content: contentBlocksParam });
 
     const isResponseValid = message.length > 0 || citations.length > 0 || sources.length > 0;
     if (isResponseValid) {
@@ -124,20 +144,12 @@ export const createAgent = (deps: AgentDeps): Agent => {
     }
   };
 
-  const checkContextWindowTokens = async (chatJid: string, group: Pick<RegisteredGroup, "folder">) => {
-    const promptTokensAfterThisTurn = await countTokens(history[chatJid]);
-    logger.debug({ promptTokensAfterThisTurn }, "Tokens used on this turn");
-    if (promptTokensAfterThisTurn >= 30_000) {
-      await runCompaction(chatJid, group);
-    }
-  };
-
   const run = async (input: AgentInput): Promise<void> => {
     const chatJid = input.group.jid;
     logger.debug({ chatJid, input }, "Received input from the user");
 
-    if (!history[chatJid]) history[chatJid] = [];
-    const rollbackLength = history[chatJid].length;
+    const history = deps.loadHistory(chatJid);
+    const rollbackLength = history.length;
     const wrappedUserPrompt = wrapMessage(input.userName, input.prompt);
     const content: Array<ContentBlockParam> =
       input.kind === "image"
@@ -146,23 +158,27 @@ export const createAgent = (deps: AgentDeps): Agent => {
             { type: "text", text: wrappedUserPrompt },
           ]
         : [{ type: "text", text: wrappedUserPrompt }];
-    history[chatJid].push({ role: "user", content });
+    appendToHistory(chatJid, history, { role: "user", content });
 
     try {
-      for await (const response of query(history[chatJid], input.group)) {
-        await handleResponse(chatJid, response);
+      for await (const response of query(history, input.group)) {
+        await handleResponse(chatJid, history, response);
       }
-      await checkContextWindowTokens(chatJid, input.group);
+      const promptTokensAfterThisTurn = await countTokens(history);
+      logger.debug({ promptTokensAfterThisTurn }, "Tokens used on this turn");
+      if (promptTokensAfterThisTurn >= 100_000) {
+        await runCompaction(chatJid, history, input.group);
+      }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
       let errorMessage: string;
       if (err instanceof RefusalError) {
-        logger.error({ chatJid }, "Refusal - clearing in-memory history");
-        history[chatJid] = [];
+        logger.error({ chatJid }, "Refusal - clearing history");
+        deps.clearHistory(chatJid);
         errorMessage = "Claude refused to answer";
       } else {
         logger.error({ err }, "Error during query iteration");
-        history[chatJid].length = rollbackLength;
+        deps.deleteHistoryFrom(chatJid, rollbackLength);
         errorMessage = err.message;
       }
       await onError({ chatJid, message: errorMessage });

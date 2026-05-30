@@ -70,36 +70,26 @@ describe("str_replace", () => {
   it("throws when old_str does not appear", async () => {
     await seed("/memories/notes.md", "alpha\nbeta\n");
 
-    await expect(
-      memory.str_replace({ command: "str_replace", path: "/memories/notes.md", old_str: "missing", new_str: "x" }),
-    ).rejects.toThrow(/did not appear verbatim/);
+    await expect(memory.str_replace({ command: "str_replace", path: "/memories/notes.md", old_str: "missing", new_str: "x" })).rejects.toThrow(/did not appear verbatim/);
   });
 
   it("throws when old_str appears more than once", async () => {
     await seed("/memories/notes.md", "dup\nother\ndup\n");
 
-    await expect(
-      memory.str_replace({ command: "str_replace", path: "/memories/notes.md", old_str: "dup", new_str: "x" }),
-    ).rejects.toThrow(/Multiple occurrences/);
+    await expect(memory.str_replace({ command: "str_replace", path: "/memories/notes.md", old_str: "dup", new_str: "x" })).rejects.toThrow(/Multiple occurrences/);
   });
 
   it("counts multi-line occurrences for the uniqueness check", async () => {
     await seed("/memories/notes.md", "a\nb\nfiller\na\nb\n");
 
-    await expect(
-      memory.str_replace({ command: "str_replace", path: "/memories/notes.md", old_str: "a\nb", new_str: "x" }),
-    ).rejects.toThrow(/Multiple occurrences/);
+    await expect(memory.str_replace({ command: "str_replace", path: "/memories/notes.md", old_str: "a\nb", new_str: "x" })).rejects.toThrow(/Multiple occurrences/);
   });
 
   it("throws when the target file does not exist", async () => {
-    await expect(
-      memory.str_replace({ command: "str_replace", path: "/memories/missing.md", old_str: "x", new_str: "y" }),
-    ).rejects.toThrow(/does not exist/);
+    await expect(memory.str_replace({ command: "str_replace", path: "/memories/missing.md", old_str: "x", new_str: "y" })).rejects.toThrow(/does not exist/);
   });
 
   it("rejects paths outside /memories", async () => {
-    await expect(
-      memory.str_replace({ command: "str_replace", path: "/etc/passwd", old_str: "x", new_str: "y" }),
-    ).rejects.toThrow(/must start with \/memories/);
+    await expect(memory.str_replace({ command: "str_replace", path: "/etc/passwd", old_str: "x", new_str: "y" })).rejects.toThrow(/must start with \/memories/);
   });
 });

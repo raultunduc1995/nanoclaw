@@ -2,7 +2,7 @@ import { logger } from "./core/utils/index.js";
 import { createGroupQueue, type GroupQueue } from "./core/group-queue.js";
 import { createChannelsRegistry, type ChannelsRegistry, type TelegramChannelOpts } from "./channels/index.js";
 import { initLocalDatabase } from "./core/db/index.js";
-import { createGroupsRepository, type GroupsRepository } from "./core/repositories/index.js";
+import { createGroupsRepository, createHistoryRepository, type GroupsRepository } from "./core/repositories/index.js";
 // import { startVoiceServer } from "./voice/index.js";
 import { createAgent, type Agent, type AgentInput } from "./agent/index.js";
 import { ImageMimeType } from "./core/common/index.js";
@@ -17,6 +17,7 @@ const initMain = () => {
 
   const localResource = initLocalDatabase();
   groupsRepo = createGroupsRepository(localResource.groups);
+  const historyRepo = createHistoryRepository(localResource.history);
 
   agent = createAgent({
     onOutput: async ({ chatJid, message }) => {
@@ -31,6 +32,10 @@ const initMain = () => {
         await channel.sendMessage(chatJid, `Error: ${message}`);
       }
     },
+    loadHistory: historyRepo.load,
+    appendHistory: historyRepo.append,
+    deleteHistoryFrom: historyRepo.deleteFrom,
+    clearHistory: historyRepo.clear,
   });
 
   groupQueue = createGroupQueue({

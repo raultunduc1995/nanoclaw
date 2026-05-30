@@ -9,5 +9,13 @@ export const createSchema = (database: Database.Database): void => {
       added_at TEXT NOT NULL,
       session_id TEXT NOT NULL DEFAULT ''
     );
+
+    CREATE TABLE IF NOT EXISTS history (
+      jid TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      PRIMARY KEY (jid, seq)
+    );
   `);
 };
