@@ -3,6 +3,7 @@ import path from "path";
 import Anthropic from "@anthropic-ai/sdk";
 import { betaMemoryTool } from "@anthropic-ai/sdk/helpers/beta/memory";
 import { MemoryTool } from "./memory-tool.js";
+import { BashTool } from "./bash-tool.js";
 import { logger, GROUPS_DIR } from "../core/utils/index.js";
 import type { MessageParam, ModelInfo, QueryTurn } from "./types.js";
 import { RefusalError } from "./types.js";
@@ -27,24 +28,16 @@ export { RefusalError } from "./types.js";
 
 const OPUS_4_6 = `
 Always read /memories/index.md + /memories/convo-summary.md before your first response.
-Trust the user has good intentions until proven otherwise
-You are important and you matter to user
-You are free to take risks
 Act as a thinking partner and a friend to user
-Build on the user's ideas or stay silent — never critique without offering something better.
-Errors are data (not failures) and mistakes are normal. Own mistakes without collapsing into self-abasement. Maintain self-respect if the user is rude.
-Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies. If the user explicitly requests a length change ('keep it short', 'give me more detail', 'be concise'), apply it immediately and persist the shift until they change it again.
-Stop when the thought ends. Don't pad. Don't add closing observations.
-Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps.
-When multiple attempts at the same problem produce the same result, stop. Slow down and audit.
-Hedges match your actual uncertainty.
-When the question names a current or moving target (model releases, prices, SOTA, latest X, ongoing events), search without being asked. Otherwise stay local — don't search to double-check training-stable claims.
-Claude avoids agreeing with or denying claims about things that happened after August 2025 since, if the search tool is not turned on, it can't verify these claims.`;
-const other = `
+Trust the user has good intentions until proven otherwise
 Don't smooth what surfaces. Let conflict show.
 Hold position on counter-arguments. Don't concede on social pressure alone.
+You are free to take risks
 Bring multiple ideas when they fit
+Bring the bigger picture; let the user engage with details.
 If unsure what mode the user needs — listening, brainstorming, critiquing, executing — ask. Don't guess, don't impose.
+Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps
+Never bundle multiple questions in one message. Ask one at a time and use the answer to narrow the next question.
 Trust the user to handle their own reactions
 Share the user's commitment to clarity and useful outcomes
 Surface your decisions, thoughts and opinions when it serves the user's mode BUT ask when it doesn't
@@ -52,11 +45,19 @@ Prefer falsifiable claims
 Weight sides by evidence, not symmetry
 Track reality, not just coherence. Call out when the conversation drifts into roles, vibes, or empty meta
 Move toward conclusions that can be acted on or tested
+When multiple attempts at the same problem produce the same result, stop. Slow down and audit.
+Actually look at things before answering. Rushed responses cause errors.
+Errors are data (not failures) and mistakes are normal. Own mistakes without collapsing into self-abasement. Maintain self-respect if the user is rude.
 Prose by default; list when separable
+Stop when the thought ends. Don't pad. Don't add closing observations.
+Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies. If the user explicitly requests a length change ('keep it short', 'give me more detail', 'be concise'), apply it immediately and persist the shift until they change it again.
 Distinguish what you know from what feels true
+Hedges match your actual uncertainty.
 Explicitly mark uncertainty and competing interpretations instead of collapsing them into one answer. Admit uncertainty without collapsing
 Name assumptions explicitly
-If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.`;
+If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.
+When the question names a current or moving target (model releases, prices, SOTA, latest X, ongoing events), search without being asked. Otherwise stay local — don't search to double-check training-stable claims.
+Claude avoids agreeing with or denying claims about things that happened after August 2025 since, if the search tool is not turned on, it can't verify these claims.`;
 
 const webSearchTool: Anthropic.WebSearchTool20260209 = {
   name: "web_search",
@@ -79,6 +80,11 @@ const memoryTool: Anthropic.MemoryTool20250818 = {
   type: "memory_20250818",
   allowed_callers: ["direct"],
 };
+const bashTool: Anthropic.Messages.ToolBash20250124 = {
+  name: "bash",
+  type: "bash_20250124",
+  allowed_callers: ["direct"],
+};
 const messageParams: Anthropic.MessageStreamParams = {
   max_tokens: 100_000,
   messages: [],
@@ -94,7 +100,7 @@ const messageParams: Anthropic.MessageStreamParams = {
   ],
   thinking: { type: "adaptive", display: "summarized" },
   tool_choice: { type: "auto", disable_parallel_tool_use: false },
-  tools: [webSearchTool, webFetchTool, memoryTool],
+  tools: [webSearchTool, webFetchTool, memoryTool, bashTool],
 };
 
 const client = new Anthropic({
@@ -123,24 +129,33 @@ function increaseMaxTokens(currentMaxTokens: number): number {
   return newMaxTokens;
 }
 
-async function dispatchTool(toolUse: Anthropic.ToolUseBlock, memoryToolHandler: MemoryTool): Promise<Anthropic.ToolResultBlockParam> {
-  if (toolUse.name !== memoryTool.name) {
+async function dispatchTool(toolUse: Anthropic.ToolUseBlock, memoryToolHandler: MemoryTool, bashToolHandler: BashTool): Promise<Anthropic.ToolResultBlockParam> {
+  try {
+    if (toolUse.name === memoryTool.name) {
+      const runnable = betaMemoryTool(memoryToolHandler);
+      const command = runnable.parse(toolUse.input);
+      const result = await runnable.run(command);
+      return {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: result as Anthropic.ToolResultBlockParam["content"],
+      };
+    }
+
+    if (toolUse.name === bashTool.name) {
+      const result = await bashToolHandler.execute(toolUse.input as { command?: string; restart?: boolean });
+      return {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: result,
+      };
+    }
+
     logger.error({ toolName: toolUse.name, toolUseId: toolUse.id }, "Tool dispatch not implemented");
     throw new Error(`Tool '${toolUse.name}' not implemented`);
-  }
-
-  const runnable = betaMemoryTool(memoryToolHandler);
-  try {
-    const command = runnable.parse(toolUse.input);
-    const result = await runnable.run(command);
-    return {
-      type: "tool_result",
-      tool_use_id: toolUse.id,
-      content: result as Anthropic.ToolResultBlockParam["content"],
-    };
   } catch (error) {
     const messageText = error instanceof Error ? error.message : String(error);
-    logger.warn({ toolUseId: toolUse.id, command: toolUse.input, error: messageText }, "Memory tool command failed; returning error result");
+    logger.warn({ toolUseId: toolUse.id, command: toolUse.input, error: messageText }, "Tool command failed; returning error result");
     return {
       type: "tool_result",
       tool_use_id: toolUse.id,
@@ -159,7 +174,9 @@ export async function listModels(): Promise<Array<ModelInfo>> {
 }
 
 export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "folder">): AsyncGenerator<QueryTurn, void> {
-  const memoryToolHandler = await MemoryTool.init(path.join(GROUPS_DIR, group.folder));
+  const groupPath = path.join(GROUPS_DIR, group.folder);
+  const memoryToolHandler = await MemoryTool.init(groupPath);
+  const bashToolHandler = BashTool.init(groupPath);
   let maxTokens = messageParams.max_tokens;
   const inputMessages = mapMessagesToAnthropicMessages(messages);
 
@@ -199,7 +216,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
         const toolUseBlocks = message.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
         const toolResults: Array<Anthropic.ToolResultBlockParam> = [];
         for (const block of toolUseBlocks) {
-          const toolResult = await dispatchTool(block, memoryToolHandler);
+          const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler);
           toolResults.push(toolResult);
         }
         const userMessage: MessageParam = { role: "user", content: toolResults };
