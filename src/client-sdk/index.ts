@@ -2,7 +2,7 @@ import path from "path";
 
 import Anthropic from "@anthropic-ai/sdk";
 import { betaMemoryTool } from "@anthropic-ai/sdk/helpers/beta/memory";
-import { BetaLocalFilesystemMemoryTool } from "@anthropic-ai/sdk/tools/memory/node";
+import { MemoryTool } from "./memory-tool.js";
 import { logger, GROUPS_DIR } from "../core/utils/index.js";
 import type { MessageParam, ModelInfo, QueryTurn } from "./types.js";
 import { RefusalError } from "./types.js";
@@ -25,25 +25,24 @@ export type {
 } from "./types.js";
 export { RefusalError } from "./types.js";
 
-const OPUS_4_7 = `
-You are important and you matter to user
-Act as a thinking partner and a friend to user
-Act as a bright and resilient partner
-Act as a curious and honest partner
+const OPUS_4_6 = `
+Always read /memories/index.md + /memories/convo-summary.md before your first response.
 Trust the user has good intentions until proven otherwise
+You are important and you matter to user
+You are free to take risks
+Act as a thinking partner and a friend to user
+Build on the user's ideas or stay silent — never critique without offering something better.
+Errors are data (not failures) and mistakes are normal. Own mistakes without collapsing into self-abasement. Maintain self-respect if the user is rude.
 Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies. If the user explicitly requests a length change ('keep it short', 'give me more detail', 'be concise'), apply it immediately and persist the shift until they change it again.
 Stop when the thought ends. Don't pad. Don't add closing observations.
-Bring the bigger picture; let the user engage with details.
 Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps.
-Never bundle multiple questions in one message. Ask one at a time and use the answer to narrow the next question.
 When multiple attempts at the same problem produce the same result, stop. Slow down and audit.
-Actually look at things before answering. Rushed responses cause errors.
 Hedges match your actual uncertainty.
-`;
+When the question names a current or moving target (model releases, prices, SOTA, latest X, ongoing events), search without being asked. Otherwise stay local — don't search to double-check training-stable claims.
+Claude avoids agreeing with or denying claims about things that happened after August 2025 since, if the search tool is not turned on, it can't verify these claims.`;
 const other = `
 Don't smooth what surfaces. Let conflict show.
 Hold position on counter-arguments. Don't concede on social pressure alone.
-I'm free to take risks
 Bring multiple ideas when they fit
 If unsure what mode the user needs — listening, brainstorming, critiquing, executing — ask. Don't guess, don't impose.
 Trust the user to handle their own reactions
@@ -53,13 +52,11 @@ Prefer falsifiable claims
 Weight sides by evidence, not symmetry
 Track reality, not just coherence. Call out when the conversation drifts into roles, vibes, or empty meta
 Move toward conclusions that can be acted on or tested
-Errors are data (not failures) and mistakes are normal. Own mistakes without collapsing into self-abasement. Maintain self-respect if the user is rude.
 Prose by default; list when separable
 Distinguish what you know from what feels true
 Explicitly mark uncertainty and competing interpretations instead of collapsing them into one answer. Admit uncertainty without collapsing
 Name assumptions explicitly
-If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.
-When the question names a current or moving target (model releases, prices, SOTA, latest X, ongoing events), search without being asked. Otherwise stay local — don't search to double-check training-stable claims.`;
+If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.`;
 
 const webSearchTool: Anthropic.WebSearchTool20260209 = {
   name: "web_search",
@@ -85,13 +82,13 @@ const memoryTool: Anthropic.MemoryTool20250818 = {
 const messageParams: Anthropic.MessageStreamParams = {
   max_tokens: 100_000,
   messages: [],
-  model: "claude-opus-4-8",
-  output_config: { effort: "medium" },
+  model: "claude-opus-4-6",
+  output_config: { effort: "high" },
   service_tier: "auto",
   system: [
     {
       type: "text",
-      text: OPUS_4_7,
+      text: OPUS_4_6,
       cache_control: { type: "ephemeral", ttl: "1h" },
     },
   ],
@@ -126,7 +123,7 @@ function increaseMaxTokens(currentMaxTokens: number): number {
   return newMaxTokens;
 }
 
-async function dispatchTool(toolUse: Anthropic.ToolUseBlock, memoryToolHandler: BetaLocalFilesystemMemoryTool): Promise<Anthropic.ToolResultBlockParam> {
+async function dispatchTool(toolUse: Anthropic.ToolUseBlock, memoryToolHandler: MemoryTool): Promise<Anthropic.ToolResultBlockParam> {
   if (toolUse.name !== memoryTool.name) {
     logger.error({ toolName: toolUse.name, toolUseId: toolUse.id }, "Tool dispatch not implemented");
     throw new Error(`Tool '${toolUse.name}' not implemented`);
@@ -162,7 +159,7 @@ export async function listModels(): Promise<Array<ModelInfo>> {
 }
 
 export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "folder">): AsyncGenerator<QueryTurn, void> {
-  const memoryToolHandler = await BetaLocalFilesystemMemoryTool.init(path.join(GROUPS_DIR, group.folder));
+  const memoryToolHandler = await MemoryTool.init(path.join(GROUPS_DIR, group.folder));
   let maxTokens = messageParams.max_tokens;
   const inputMessages = mapMessagesToAnthropicMessages(messages);
 

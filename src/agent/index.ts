@@ -3,6 +3,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import { query, countTokens, type ContentBlockParam, RefusalError, type QueryTurn } from "../client-sdk/index.js";
 import { logger, TIMEZONE } from "../core/utils/index.js";
 import type { AgentInput, HistoryEntry } from "./types.js";
+import type { RegisteredGroup } from "../core/repositories/index.js";
 
 export type { AgentInput, HistoryEntry } from "./types.js";
 
@@ -22,19 +23,22 @@ export const createAgent = (deps: AgentDeps): Agent => {
   const { onOutput, onError } = deps;
   const history: Record<string, Array<HistoryEntry>> = {};
 
-  const runCompaction = async (chatJid: string) => {
-    logger.debug({ chatJid }, "Running compaction for chat");
-    // TODO(compaction): implement two-query compaction:
-    //   1. Memory-extraction query — Claude reads current in-memory history, calls the memory tool
-    //      (memory_20250818) repeatedly to add / modify / stale-tag memory files. No delete op.
-    //   2. Summarization query — Claude produces a dense summary of the same history, wrapped in
-    //      <summary>...</summary> xml tags. System prompt for this query must instruct Claude NOT
-    //      to re-summarize content already inside <summary> tags (prevents summary-of-summary loss).
-    // Both queries should override `output_config.effort` to "xhigh" — compaction is quality-critical,
-    // agentic, infrequent; latency is invisible (between turns).
-    // After both queries succeed:
-    //   - Full clean of history[chatJid] (no preservation of older <summary> blocks).
-    //   - Push the new summary as a user-type HistoryEntry (re-roled, not assistant).
+  const runCompaction = async (chatJid: string, group: Pick<RegisteredGroup, "folder">) => {
+    logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
+
+    const compactionPrompt: HistoryEntry = {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "Summarize the entire conversation above into /memories/convo-summary.md. If the file already exists, delete it first, then create it fresh with the new summary. Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation. Write a dense, factual summary. Write the summary in the same language used in the conversation.",
+        },
+      ],
+    };
+
+    for await (const _turn of query([...history[chatJid], compactionPrompt], group)) {
+    }
+
     history[chatJid] = [];
   };
 
@@ -120,12 +124,11 @@ export const createAgent = (deps: AgentDeps): Agent => {
     }
   };
 
-  const checkContextWindowTokens = async (chatJid: string) => {
+  const checkContextWindowTokens = async (chatJid: string, group: Pick<RegisteredGroup, "folder">) => {
     const promptTokensAfterThisTurn = await countTokens(history[chatJid]);
     logger.debug({ promptTokensAfterThisTurn }, "Tokens used on this turn");
-    if (promptTokensAfterThisTurn >= 200_000) {
-      logger.warn({ chatJid, promptTokensAfterThisTurn }, "Total prompt tokens approaching model limit, consider pruning history");
-      await runCompaction(chatJid);
+    if (promptTokensAfterThisTurn >= 30_000) {
+      await runCompaction(chatJid, group);
     }
   };
 
@@ -149,7 +152,7 @@ export const createAgent = (deps: AgentDeps): Agent => {
       for await (const response of query(history[chatJid], input.group)) {
         await handleResponse(chatJid, response);
       }
-      await checkContextWindowTokens(chatJid);
+      await checkContextWindowTokens(chatJid, input.group);
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
       let errorMessage: string;
