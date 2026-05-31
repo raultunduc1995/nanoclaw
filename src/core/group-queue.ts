@@ -20,11 +20,7 @@ interface GroupImageData extends GroupDataBase {
   imageMimeType: ImageMimeType;
 }
 
-interface GroupCompactionData extends GroupDataBase {
-  kind: "compaction";
-}
-
-type GroupData = GroupTextData | GroupImageData | GroupCompactionData;
+type GroupData = GroupTextData | GroupImageData;
 
 interface GroupQueueDeps {
   runBee: (input: AgentInput) => { pipe: (input: { prompt: string } | { prompt: string; imageBase64: string; imageMimeType: ImageMimeType }) => void; done: Promise<void> };
@@ -32,7 +28,6 @@ interface GroupQueueDeps {
 
 export interface GroupQueue {
   deliver: (data: GroupData) => boolean;
-  enqueueCompaction: (data: GroupCompactionData) => void;
   shutdown: () => void;
 }
 
@@ -51,8 +46,6 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
           pipe({ prompt: data.prompt, imageBase64: data.imageBase64, imageMimeType: data.imageMimeType });
         } else if (data.kind === "text") {
           pipe({ prompt: data.prompt });
-        } else if (data.kind === "compaction") {
-          throw new Error(`Compaction reached pipe path — invariant broken (jid=${data.jid})`);
         }
         return true;
       }
@@ -65,11 +58,7 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
     runningJid = data.jid;
     const base = { group: data.group, chatJid: data.jid, sessionId: data.group.sessionId };
     const beeAgentInput: AgentInput =
-      data.kind === "compaction"
-        ? { ...base, kind: "compaction" }
-        : data.kind === "image"
-          ? { ...base, kind: "image", prompt: data.prompt, imageBase64: data.imageBase64, imageMimeType: data.imageMimeType }
-          : { ...base, kind: "text", prompt: data.prompt };
+      data.kind === "image" ? { ...base, kind: "image", prompt: data.prompt, imageBase64: data.imageBase64, imageMimeType: data.imageMimeType } : { ...base, kind: "text", prompt: data.prompt };
     const channel = deps.runBee(beeAgentInput);
     pipe = channel.pipe;
 
@@ -92,11 +81,6 @@ export const createGroupQueue = (deps: GroupQueueDeps): GroupQueue => {
 
   return {
     deliver: (data) => deliver(data),
-    enqueueCompaction: (data) => {
-      if (shuttingDown) return;
-      logger.debug({ queueLength: queue.length }, "Enqueued message at front (no pipe)");
-      queue.unshift(data);
-    },
     shutdown: () => {
       logger.info({ queueLength: queue.length }, "GroupQueue shutting down");
       shuttingDown = true;

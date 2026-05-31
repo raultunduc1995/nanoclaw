@@ -44,7 +44,6 @@ const initMain = () => {
             await channel.sendMessage(input.chatJid, error.message);
           }
         },
-        (_) => groupQueue.enqueueCompaction({ kind: "compaction", jid: input.chatJid, group: input.group }),
         (sessionId) => groupsRepo.updateSessionId(input.chatJid, sessionId),
         () => groupsRepo.updateSessionId(input.chatJid, ""),
       ),
