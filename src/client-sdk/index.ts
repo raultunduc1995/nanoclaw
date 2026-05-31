@@ -1,9 +1,11 @@
 import path from "path";
+import os from "os";
 
 import Anthropic from "@anthropic-ai/sdk";
 import { betaMemoryTool } from "@anthropic-ai/sdk/helpers/beta/memory";
 import { MemoryTool } from "./memory-tool.js";
 import { BashTool } from "./bash-tool.js";
+import { TextEditorTool } from "./text-editor-tool.js";
 import { logger, GROUPS_DIR } from "../core/utils/index.js";
 import type { MessageParam, ModelInfo, QueryTurn } from "./types.js";
 import { RefusalError } from "./types.js";
@@ -85,6 +87,11 @@ const bashTool: Anthropic.Messages.ToolBash20250124 = {
   type: "bash_20250124",
   allowed_callers: ["direct"],
 };
+const textEditorTool: Anthropic.Messages.ToolTextEditor20250728 = {
+  name: "str_replace_based_edit_tool",
+  type: "text_editor_20250728",
+  allowed_callers: ["direct"],
+};
 const messageParams: Anthropic.MessageStreamParams = {
   max_tokens: 100_000,
   messages: [],
@@ -100,7 +107,7 @@ const messageParams: Anthropic.MessageStreamParams = {
   ],
   thinking: { type: "adaptive", display: "summarized" },
   tool_choice: { type: "auto", disable_parallel_tool_use: false },
-  tools: [webSearchTool, webFetchTool, memoryTool, bashTool],
+  tools: [webSearchTool, webFetchTool, memoryTool, bashTool, textEditorTool],
 };
 
 const client = new Anthropic({
@@ -129,7 +136,7 @@ function increaseMaxTokens(currentMaxTokens: number): number {
   return newMaxTokens;
 }
 
-async function dispatchTool(toolUse: Anthropic.ToolUseBlock, memoryToolHandler: MemoryTool, bashToolHandler: BashTool): Promise<Anthropic.ToolResultBlockParam> {
+async function dispatchTool(toolUse: Anthropic.ToolUseBlock, memoryToolHandler: MemoryTool, bashToolHandler: BashTool, textEditorHandler: TextEditorTool): Promise<Anthropic.ToolResultBlockParam> {
   try {
     if (toolUse.name === memoryTool.name) {
       const runnable = betaMemoryTool(memoryToolHandler);
@@ -144,6 +151,17 @@ async function dispatchTool(toolUse: Anthropic.ToolUseBlock, memoryToolHandler: 
 
     if (toolUse.name === bashTool.name) {
       const result = await bashToolHandler.execute(toolUse.input as { command?: string; restart?: boolean });
+      return {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: result,
+      };
+    }
+
+    if (toolUse.name === textEditorTool.name) {
+      const result = await textEditorHandler.execute(
+        toolUse.input as { command: string; path: string; view_range?: [number, number]; old_str?: string; new_str?: string; file_text?: string; insert_line?: number; insert_text?: string },
+      );
       return {
         type: "tool_result",
         tool_use_id: toolUse.id,
@@ -176,7 +194,8 @@ export async function listModels(): Promise<Array<ModelInfo>> {
 export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "folder">): AsyncGenerator<QueryTurn, void> {
   const groupPath = path.join(GROUPS_DIR, group.folder);
   const memoryToolHandler = await MemoryTool.init(groupPath);
-  const bashToolHandler = BashTool.init(groupPath);
+  const bashToolHandler = BashTool.init(os.homedir());
+  const textEditorHandler = TextEditorTool.init(os.homedir());
   let maxTokens = messageParams.max_tokens;
   const inputMessages = mapMessagesToAnthropicMessages(messages);
 
@@ -216,7 +235,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
         const toolUseBlocks = message.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
         const toolResults: Array<Anthropic.ToolResultBlockParam> = [];
         for (const block of toolUseBlocks) {
-          const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler);
+          const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler, textEditorHandler);
           toolResults.push(toolResult);
         }
         const userMessage: MessageParam = { role: "user", content: toolResults };
@@ -261,7 +280,7 @@ export async function countTokens(messages: Array<MessageParam>): Promise<number
   const inputTokens = await client.messages.countTokens({
     model: messageParams.model,
     system: messageParams.system,
-    output_config: { effort: "medium" },
+    output_config: { effort: messageParams.output_config?.effort },
     thinking: messageParams.thinking,
     messages: inputMessages,
   });

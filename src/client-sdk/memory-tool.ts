@@ -1,3 +1,4 @@
+/* eslint-disable preserve-caught-error */
 import { mkdir, open, readFile, rename, stat, unlink } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
