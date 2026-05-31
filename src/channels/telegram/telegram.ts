@@ -51,7 +51,6 @@ export class TelegramChannel implements Channel {
       const msgId = ctx.message.message_id.toString();
       const content = ctx.message.text;
 
-      logger.debug({ chatJid, content }, "Telegram message received");
       this.opts.onInboundMessage({ kind: "text", id: msgId, chatJid, userName, prompt: content }, group);
     });
 
@@ -75,7 +74,6 @@ export class TelegramChannel implements Channel {
         return;
       }
 
-      logger.debug({ chatJid, file: largest.file_id }, "Telegram photo received");
       this.opts.onInboundMessage({ kind: "image", id: msgId, chatJid, userName, prompt: content, imageMimeType: "image/jpeg", imageBase64 }, group);
     });
 
@@ -96,8 +94,6 @@ export class TelegramChannel implements Channel {
   }
 
   async sendMessage(jid: string, text: string, threadId?: string): Promise<void> {
-    logger.debug({ jid, text, threadId }, "Sending telegram message");
-
     try {
       const numericId = jid.replace(/^tg:/, "");
       const options = threadId ? { message_thread_id: parseInt(threadId, 10) } : {};
@@ -130,7 +126,7 @@ export class TelegramChannel implements Channel {
       const numericId = jid.replace(/^tg:/, "");
       await this.bot.api.sendChatAction(numericId, "typing");
     } catch (err) {
-      logger.debug({ jid, err }, "Failed to send Telegram typing indicator");
+      logger.error({ jid, err }, "Failed to send Telegram typing indicator");
     }
   }
 }
