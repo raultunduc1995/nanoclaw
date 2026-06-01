@@ -34,7 +34,7 @@ export class TelegramChannel implements Channel {
       const chatName = chatType === "private" ? ctx.from?.first_name || "Private" : "title" in ctx.chat ? ctx.chat.title || "Unknown" : "Unknown";
       ctx.reply(`Chat ID: \`tg:${chatId}\`\nName: ${chatName}\nType: ${chatType}`, { parse_mode: "Markdown" });
       // logger.info(`Register new bot: ${chatId}`);
-      // this.opts.registerNewGroup(`tg:${chatId}`, { name: `${chatName}`, folder: `telegram-${chatName}`, addedAt: new Date().toISOString(), sessionId: '' });
+      // this.opts.registerNewGroup(`tg:${chatId}`, { name: `${chatName}`, folder: `telegram-${chatName}`, addedAt: new Date().toISOString() });
     });
 
     this.bot.on("message:text", async (ctx) => {

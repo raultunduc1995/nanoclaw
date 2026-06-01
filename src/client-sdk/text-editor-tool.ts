@@ -1,3 +1,4 @@
+/* eslint-disable preserve-caught-error */
 import { open, readFile, readdir, rename, stat, mkdir } from "fs/promises";
 import { unlink } from "fs/promises";
 import path from "path";
@@ -8,19 +9,6 @@ const MAX_LINES = 999999;
 const LINE_NUMBER_WIDTH = String(MAX_LINES).length;
 const FILE_CREATE_MODE = 0o600;
 const DIR_CREATE_MODE = 0o700;
-
-// --- Raw input from model (unvalidated) ---
-
-interface TextEditorInput {
-  command: string;
-  path: string;
-  view_range?: [number, number];
-  old_str?: string;
-  new_str?: string;
-  file_text?: string;
-  insert_line?: number;
-  insert_text?: string;
-}
 
 // --- Discriminated union (validated) ---
 
@@ -54,24 +42,24 @@ type EditorCommand = ViewCommand | StrReplaceCommand | CreateCommand | InsertCom
 
 // --- Utilities ---
 
-function parseCommand(input: TextEditorInput): EditorCommand {
+function parseCommand(input: Record<string, unknown>): EditorCommand {
   switch (input.command) {
     case "view":
-      return { command: "view", path: input.path, view_range: input.view_range };
+      return { command: "view", path: input.path as string, view_range: input.view_range ? (input.view_range as [number, number]) : undefined };
 
     case "str_replace":
       if (input.old_str === undefined) throw new Error("Error: old_str is required for str_replace command.");
       if (input.new_str === undefined) throw new Error("Error: new_str is required for str_replace command.");
-      return { command: "str_replace", path: input.path, old_str: input.old_str, new_str: input.new_str };
+      return { command: "str_replace", path: input.path as string, old_str: input.old_str as string, new_str: input.new_str as string };
 
     case "create":
       if (input.file_text === undefined) throw new Error("Error: file_text is required for create command.");
-      return { command: "create", path: input.path, file_text: input.file_text };
+      return { command: "create", path: input.path as string, file_text: input.file_text as string };
 
     case "insert":
       if (input.insert_line === undefined) throw new Error("Error: insert_line is required for insert command.");
       if (input.insert_text === undefined) throw new Error("Error: insert_text is required for insert command.");
-      return { command: "insert", path: input.path, insert_line: input.insert_line, insert_text: input.insert_text };
+      return { command: "insert", path: input.path as string, insert_line: input.insert_line as number, insert_text: input.insert_text as string };
 
     default:
       throw new Error(`Error: Unknown command '${input.command}'. Valid commands: view, str_replace, create, insert.`);
@@ -128,7 +116,7 @@ export class TextEditorTool {
     return resolved;
   }
 
-  async execute(input: TextEditorInput): Promise<string> {
+  async execute(input: Record<string, unknown>): Promise<string> {
     const cmd = parseCommand(input);
     switch (cmd.command) {
       case "view":

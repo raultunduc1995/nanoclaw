@@ -17,7 +17,6 @@ const row = (overrides?: Partial<GroupRow>): GroupRow => ({
   name: "Test Group",
   folder: "telegram_test-group",
   added_at: "2024-01-01T00:00:00.000Z",
-  session_id: "",
   ...overrides,
 });
 

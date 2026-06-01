@@ -48,7 +48,6 @@ describe("getAllAsRecord", () => {
       name: "Main",
       folder: "telegram_main",
       added_at: "2024-01-01T00:00:00.000Z",
-      session_id: "",
     });
 
     const freshRepo = createGroupsRepository(db.groups);
@@ -65,7 +64,6 @@ describe("getAllAsRecord", () => {
       name: "Dev Team",
       folder: "telegram_dev-team",
       added_at: "2026-03-01T10:00:00.000Z",
-      session_id: "",
     });
 
     const freshRepo = createGroupsRepository(db.groups);
@@ -83,8 +81,8 @@ describe("getRegisteredGroupsJids", () => {
   });
 
   it("returns jids after registration", () => {
-    repo.register("tg:one", { name: "One", folder: "telegram_one", addedAt: "2024-01-01T00:00:00.000Z", sessionId: "" });
-    repo.register("tg:two", { name: "Two", folder: "telegram_two", addedAt: "2024-01-01T00:00:00.000Z", sessionId: "" });
+    repo.register("tg:one", { name: "One", folder: "telegram_one", addedAt: "2024-01-01T00:00:00.000Z" });
+    repo.register("tg:two", { name: "Two", folder: "telegram_two", addedAt: "2024-01-01T00:00:00.000Z" });
 
     const jids = repo.getAllJids();
     expect(jids.has("tg:one")).toBe(true);
@@ -101,7 +99,7 @@ describe("getBy", () => {
   });
 
   it("returns group after registerGroup", () => {
-    repo.register("tg:chat", { name: "Chat", folder: "telegram_chat", addedAt: "2024-01-01T00:00:00.000Z", sessionId: "" });
+    repo.register("tg:chat", { name: "Chat", folder: "telegram_chat", addedAt: "2024-01-01T00:00:00.000Z" });
 
     const group = repo.getByJid("tg:chat");
     expect(group).toBeDefined();
@@ -114,7 +112,7 @@ describe("getBy", () => {
 
 describe("register", () => {
   it("adds group to cache and persists to DB", () => {
-    repo.register("tg:new", { name: "New Group", folder: "telegram_new-group", addedAt: "2024-06-01T00:00:00.000Z", sessionId: "" });
+    repo.register("tg:new", { name: "New Group", folder: "telegram_new-group", addedAt: "2024-06-01T00:00:00.000Z" });
 
     expect(repo.getByJid("tg:new")).toBeDefined();
     expect(repo.getAllAsRecord()["tg:new"].name).toBe("New Group");
@@ -125,21 +123,21 @@ describe("register", () => {
   });
 
   it("overwrites existing group", () => {
-    repo.register("tg:chat", { name: "Original", folder: "telegram_chat", addedAt: "2024-01-01T00:00:00.000Z", sessionId: "" });
-    repo.register("tg:chat", { name: "Updated", folder: "telegram_chat", addedAt: "2024-01-01T00:00:00.000Z", sessionId: "" });
+    repo.register("tg:chat", { name: "Original", folder: "telegram_chat", addedAt: "2024-01-01T00:00:00.000Z" });
+    repo.register("tg:chat", { name: "Updated", folder: "telegram_chat", addedAt: "2024-01-01T00:00:00.000Z" });
 
     expect(repo.getByJid("tg:chat")!.name).toBe("Updated");
   });
 
   it("throws on invalid folder name", () => {
-    expect(() => repo.register("tg:bad", { name: "Bad", folder: "../../outside", addedAt: "2024-01-01T00:00:00.000Z", sessionId: "" })).toThrow();
+    expect(() => repo.register("tg:bad", { name: "Bad", folder: "../../outside", addedAt: "2024-01-01T00:00:00.000Z" })).toThrow();
 
     expect(repo.getByJid("tg:bad")).toBeUndefined();
   });
 
   it("creates group directory with logs subdirectory", async () => {
     const fs = await import("fs");
-    repo.register("tg:dir", { name: "Dir Test", folder: "telegram_dir-test", addedAt: "2024-01-01T00:00:00.000Z", sessionId: "" });
+    repo.register("tg:dir", { name: "Dir Test", folder: "telegram_dir-test", addedAt: "2024-01-01T00:00:00.000Z" });
 
     expect(fs.default.mkdirSync).toHaveBeenCalledWith("/tmp/test-groups/telegram_dir-test/logs", { recursive: true });
   });

@@ -1,15 +1,20 @@
+/* eslint-disable no-catch-all/no-catch-all */
 import path from "path";
 import os from "os";
 
 import Anthropic from "@anthropic-ai/sdk";
 import { betaMemoryTool } from "@anthropic-ai/sdk/helpers/beta/memory";
+import type { BetaRunnableTool } from "@anthropic-ai/sdk/lib/tools/BetaRunnableTool.js";
+
 import { MemoryTool } from "./memory-tool.js";
 import { BashTool } from "./bash-tool.js";
 import { TextEditorTool } from "./text-editor-tool.js";
+import { McpClientManager } from "./mcp-client.js";
 import { logger, GROUPS_DIR } from "../core/utils/index.js";
 import type { MessageParam, ModelInfo, QueryTurn } from "./types.js";
 import { RefusalError } from "./types.js";
-import { RegisteredGroup } from "../core/repositories/index.js";
+import type { RegisteredGroup } from "../core/repositories/index.js";
+import { MCP_AUTH_SECRET } from "../core/utils/config.js";
 
 export type {
   TextBlockParam,
@@ -27,6 +32,9 @@ export type {
   ModelInfo,
 } from "./types.js";
 export { RefusalError } from "./types.js";
+export type { McpServerConfig } from "./mcp-client.js";
+
+const ANDROID_JID = `tg:-5186159689`;
 
 const OPUS_4_6 = `
 Always read /memories/index.md + /memories/convo-summary.md before your first response.
@@ -107,7 +115,6 @@ const messageParams: Anthropic.MessageStreamParams = {
   ],
   thinking: { type: "adaptive", display: "summarized" },
   tool_choice: { type: "auto", disable_parallel_tool_use: false },
-  tools: [webSearchTool, webFetchTool, memoryTool, bashTool, textEditorTool],
 };
 
 const client = new Anthropic({
@@ -136,12 +143,17 @@ function increaseMaxTokens(currentMaxTokens: number): number {
   return newMaxTokens;
 }
 
-async function dispatchTool(toolUse: Anthropic.ToolUseBlock, memoryToolHandler: MemoryTool, bashToolHandler: BashTool, textEditorHandler: TextEditorTool): Promise<Anthropic.ToolResultBlockParam> {
+async function dispatchTool(
+  toolUse: Anthropic.ToolUseBlock,
+  memoryToolHandler: BetaRunnableTool<Anthropic.Beta.BetaMemoryTool20250818Command>,
+  bashToolHandler: BashTool,
+  textEditorHandler: TextEditorTool,
+  mcpManager: McpClientManager,
+): Promise<Anthropic.ToolResultBlockParam> {
   try {
     if (toolUse.name === memoryTool.name) {
-      const runnable = betaMemoryTool(memoryToolHandler);
-      const command = runnable.parse(toolUse.input);
-      const result = await runnable.run(command);
+      const command = memoryToolHandler.parse(toolUse.input);
+      const result = await memoryToolHandler.run(command);
       return {
         type: "tool_result",
         tool_use_id: toolUse.id,
@@ -159,9 +171,7 @@ async function dispatchTool(toolUse: Anthropic.ToolUseBlock, memoryToolHandler: 
     }
 
     if (toolUse.name === textEditorTool.name) {
-      const result = await textEditorHandler.execute(
-        toolUse.input as { command: string; path: string; view_range?: [number, number]; old_str?: string; new_str?: string; file_text?: string; insert_line?: number; insert_text?: string },
-      );
+      const result = await textEditorHandler.execute(toolUse.input as Record<string, unknown>);
       return {
         type: "tool_result",
         tool_use_id: toolUse.id,
@@ -169,8 +179,14 @@ async function dispatchTool(toolUse: Anthropic.ToolUseBlock, memoryToolHandler: 
       };
     }
 
-    logger.error({ toolName: toolUse.name, toolUseId: toolUse.id }, "Tool dispatch not implemented");
-    throw new Error(`Tool '${toolUse.name}' not implemented`);
+    if (mcpManager.handles(toolUse.name)) {
+      const result = await mcpManager.callTool(toolUse.name, toolUse.input as Record<string, unknown>);
+      return {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: result,
+      };
+    }
   } catch (error) {
     const messageText = error instanceof Error ? error.message : String(error);
     logger.warn({ toolUseId: toolUse.id, command: toolUse.input, error: messageText }, "Tool command failed; returning error result");
@@ -181,6 +197,9 @@ async function dispatchTool(toolUse: Anthropic.ToolUseBlock, memoryToolHandler: 
       is_error: true,
     };
   }
+
+  logger.error({ toolName: toolUse.name, toolUseId: toolUse.id }, "Tool dispatch not implemented");
+  throw new Error(`Tool '${toolUse.name}' not implemented`);
 }
 
 export async function listModels(): Promise<Array<ModelInfo>> {
@@ -191,87 +210,114 @@ export async function listModels(): Promise<Array<ModelInfo>> {
   return modelsInfo;
 }
 
-export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "folder">): AsyncGenerator<QueryTurn, void> {
+export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "jid" | "folder">): AsyncGenerator<QueryTurn, void> {
   const groupPath = path.join(GROUPS_DIR, group.folder);
-  const memoryToolHandler = await MemoryTool.init(groupPath);
+  const memoryToolHandler = betaMemoryTool(await MemoryTool.init(groupPath));
   const bashToolHandler = BashTool.init(os.homedir());
   const textEditorHandler = TextEditorTool.init(os.homedir());
+  const mcpManager = new McpClientManager();
+
   let maxTokens = messageParams.max_tokens;
   const inputMessages = mapMessagesToAnthropicMessages(messages);
 
-  let message = await client.messages
-    .stream({
-      ...messageParams,
-      max_tokens: maxTokens,
-      messages: inputMessages,
-    })
-    .finalMessage();
-  logger.debug({ message }, "Anthropic.Message received");
+  const allTools: Anthropic.Messages.ToolUnion[] = [];
+  if (group.jid === ANDROID_JID) {
+    allTools.push(webSearchTool, webFetchTool, memoryTool);
 
-  while (true) {
-    switch (message.stop_reason) {
-      case "end_turn": {
-        inputMessages.push({ role: message.role, content: message.content });
-        yield { role: "assistant", turn: message };
-        if (message.content.length !== 0) return;
+    await mcpManager.connect({
+      "work-mac": {
+        url: "http://192.168.1.176:3737/sse",
+        headers: { "X-Auth": MCP_AUTH_SECRET },
+      },
+    });
+    const mcpTools = mcpManager.getToolDefinitions();
+    allTools.push(...mcpTools);
+  } else {
+    allTools.push(webSearchTool, webFetchTool, memoryTool, bashTool, textEditorTool);
+  }
 
-        const userMessage: MessageParam = { role: "user", content: [{ type: "text", text: "Please continue" }] };
-        inputMessages.push(userMessage);
-        yield { role: "user", turn: userMessage };
-        break;
-      }
-
-      case "stop_sequence": {
-        logger.warn({ stop_reason: message.stop_reason, stop_sequence: message.stop_sequence }, "Stopped at sequence");
-        inputMessages.push({ role: message.role, content: message.content });
-        yield { role: "assistant", turn: message };
-        return;
-      }
-
-      case "tool_use": {
-        inputMessages.push({ role: message.role, content: message.content });
-        yield { role: "assistant", turn: message };
-
-        const toolUseBlocks = message.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-        const toolResults: Array<Anthropic.ToolResultBlockParam> = [];
-        for (const block of toolUseBlocks) {
-          const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler, textEditorHandler);
-          toolResults.push(toolResult);
-        }
-        const userMessage: MessageParam = { role: "user", content: toolResults };
-        inputMessages.push(userMessage);
-        yield { role: "user", turn: userMessage };
-        break;
-      }
-
-      case "max_tokens":
-        logger.warn({ stop_reason: message.stop_reason, stop_details: message.stop_details }, "Response truncated at max_tokens");
-        maxTokens = increaseMaxTokens(maxTokens);
-        break;
-
-      case "pause_turn":
-        logger.warn({ stop_reason: message.stop_reason, stop_details: message.stop_details }, "Turn paused");
-        inputMessages.push({ role: message.role, content: message.content });
-        yield { role: "assistant", turn: message };
-        break;
-
-      case "refusal":
-        logger.error({ stop_reason: message.stop_reason, stop_details: message.stop_details }, "Model refused to respond");
-        throw new RefusalError("Claude refused to process this request");
-
-      default:
-        logger.error({ stop_reason: message.stop_reason, stop_details: message.stop_details }, "Unknown stop_reason");
-        throw new Error(`Unexpected stop_reason='${message.stop_reason}'`);
-    }
-
-    message = await client.messages
+  try {
+    let message = await client.messages
       .stream({
         ...messageParams,
+        tools: allTools,
         max_tokens: maxTokens,
         messages: inputMessages,
       })
       .finalMessage();
     logger.debug({ message }, "Anthropic.Message received");
+
+    while (true) {
+      switch (message.stop_reason) {
+        case "end_turn": {
+          inputMessages.push({ role: message.role, content: message.content });
+          yield { role: "assistant", turn: message };
+          if (message.content.length !== 0) return;
+
+          const userMessage: MessageParam = { role: "user", content: [{ type: "text", text: "Please continue" }] };
+          inputMessages.push(userMessage);
+          yield { role: "user", turn: userMessage };
+          break;
+        }
+
+        case "stop_sequence": {
+          logger.warn({ stop_reason: message.stop_reason, stop_sequence: message.stop_sequence }, "Stopped at sequence");
+          inputMessages.push({ role: message.role, content: message.content });
+          yield { role: "assistant", turn: message };
+          return;
+        }
+
+        case "tool_use": {
+          inputMessages.push({ role: message.role, content: message.content });
+          yield { role: "assistant", turn: message };
+
+          const toolResults: Array<Anthropic.ToolResultBlockParam> = [];
+          for (const block of message.content) {
+            if (block.type === "tool_use") {
+              const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler, textEditorHandler, mcpManager);
+              toolResults.push(toolResult);
+            }
+          }
+          const userMessage: MessageParam = { role: "user", content: toolResults };
+          inputMessages.push(userMessage);
+          yield { role: "user", turn: userMessage };
+          break;
+        }
+
+        case "max_tokens":
+          logger.warn({ stop_reason: message.stop_reason, stop_details: message.stop_details }, "Response truncated at max_tokens");
+          maxTokens = increaseMaxTokens(maxTokens);
+          inputMessages.push({ role: message.role, content: message.content });
+          yield { role: "assistant", turn: message };
+          break;
+
+        case "pause_turn":
+          logger.warn({ stop_reason: message.stop_reason, stop_details: message.stop_details }, "Turn paused");
+          inputMessages.push({ role: message.role, content: message.content });
+          yield { role: "assistant", turn: message };
+          break;
+
+        case "refusal":
+          logger.error({ stop_reason: message.stop_reason, stop_details: message.stop_details }, "Model refused to respond");
+          throw new RefusalError("Claude refused to process this request");
+
+        default:
+          logger.error({ stop_reason: message.stop_reason, stop_details: message.stop_details }, "Unknown stop_reason");
+          throw new Error(`Unexpected stop_reason='${message.stop_reason}'`);
+      }
+
+      message = await client.messages
+        .stream({
+          ...messageParams,
+          tools: allTools,
+          max_tokens: maxTokens,
+          messages: inputMessages,
+        })
+        .finalMessage();
+      logger.debug({ message }, "Anthropic.Message received");
+    }
+  } finally {
+    await mcpManager.close();
   }
 }
 

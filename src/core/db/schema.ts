@@ -6,8 +6,7 @@ export const createSchema = (database: Database.Database): void => {
       jid TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       folder TEXT NOT NULL UNIQUE,
-      added_at TEXT NOT NULL,
-      session_id TEXT NOT NULL DEFAULT ''
+      added_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS history (

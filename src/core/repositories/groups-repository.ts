@@ -14,7 +14,6 @@ export interface RegisteredGroup {
   name: string;
   folder: string;
   addedAt: string;
-  sessionId: string;
 }
 
 // --- Repository interface and implementation ---
@@ -24,7 +23,6 @@ export interface GroupsRepository {
   getAllJids: () => Set<string>;
   getByJid: (jid: string) => RegisteredGroup | undefined;
   register: (jid: string, group: Omit<RegisteredGroup, "jid">) => void;
-  updateSessionId: (jid: string, sessionId: string) => void;
 }
 
 export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRepository => {
@@ -50,14 +48,6 @@ export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRep
       saveGroup(jid, { ...group, jid });
       createGroupDirectory(groupDir);
     },
-
-    updateSessionId: (jid, sessionId) => {
-      const group = registeredGroups[jid];
-      if (!group) return;
-      const updated = { ...group, sessionId };
-      resource.set(jid, toGroupRow(jid, updated));
-      registeredGroups[jid] = updated;
-    },
   };
 };
 
@@ -68,7 +58,6 @@ const toRegisteredGroup = (row: GroupRow): RegisteredGroup => ({
   name: row.name,
   folder: row.folder,
   addedAt: row.added_at,
-  sessionId: row.session_id,
 });
 
 const toGroupRow = (jid: string, group: RegisteredGroup): GroupRow => ({
@@ -76,7 +65,6 @@ const toGroupRow = (jid: string, group: RegisteredGroup): GroupRow => ({
   name: group.name,
   folder: group.folder,
   added_at: group.addedAt,
-  session_id: group.sessionId,
 });
 
 // --- Utility functions for group directory management ---
@@ -91,5 +79,5 @@ function resolveGroupFolderPath(folder: string): string {
 }
 
 function createGroupDirectory(groupDir: string): void {
-  fs.mkdirSync(path.join(groupDir, "logs"), { recursive: true });
+  fs.mkdirSync(path.join(groupDir, "memories"), { recursive: true });
 }

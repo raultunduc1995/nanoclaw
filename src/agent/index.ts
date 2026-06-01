@@ -31,37 +31,6 @@ export const createAgent = (deps: AgentDeps): Agent => {
     deps.appendHistory(chatJid, history.length - 1, entry);
   };
 
-  const runCompaction = async (chatJid: string, history: Array<HistoryEntry>, group: Pick<RegisteredGroup, "folder">) => {
-    logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
-
-    const compactionPrompt: HistoryEntry = {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: `
-          Summarize the entire conversation above into /memories/convo-summary.md.
-          If the file already exists, delete it first, then create it fresh with the new summary.
-          Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
-          Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
-        },
-      ],
-    };
-
-    for await (const _turn of query([...history, compactionPrompt], group)) {
-      /* empty */
-    }
-
-    deps.clearHistory(chatJid);
-
-    await run({
-      kind: "text",
-      userName: "System",
-      prompt: "Context was compacted. Read /memories/index.md and /memories/convo-summary.md before your next response.",
-      group: { jid: chatJid, folder: group.folder },
-    });
-  };
-
   const handleResponse = async (chatJid: string, history: Array<HistoryEntry>, response: QueryTurn) => {
     const { role, turn } = response;
 
@@ -142,6 +111,37 @@ export const createAgent = (deps: AgentDeps): Agent => {
 
       await onOutput({ chatJid, message: claudeMessage });
     }
+  };
+
+  const runCompaction = async (chatJid: string, history: Array<HistoryEntry>, group: Pick<RegisteredGroup, "jid" | "folder">) => {
+    logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
+
+    const compactionPrompt: HistoryEntry = {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `
+          Summarize the entire conversation above into /memories/convo-summary.md.
+          If the file already exists, delete it first, then create it fresh with the new summary.
+          Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
+          Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
+        },
+      ],
+    };
+
+    for await (const turn of query([...history, compactionPrompt], group)) {
+      await handleResponse(chatJid, history, turn);
+    }
+
+    deps.clearHistory(chatJid);
+
+    await run({
+      kind: "text",
+      userName: "System",
+      prompt: "Context was compacted. Read /memories/index.md and /memories/convo-summary.md before your next response.",
+      group: { jid: chatJid, folder: group.folder },
+    });
   };
 
   const run = async (input: AgentInput): Promise<void> => {

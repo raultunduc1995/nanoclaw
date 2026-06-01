@@ -77,7 +77,6 @@ function createTestOpts(overrides?: Partial<TelegramChannelOpts>): TelegramChann
         name: "Test Group",
         folder: "test-group",
         addedAt: "2024-01-01T00:00:00.000Z",
-        sessionId: "",
       },
     })),
     ...overrides,
@@ -269,7 +268,6 @@ describe("TelegramChannel", () => {
             name: "Private",
             folder: "private",
             addedAt: "2024-01-01T00:00:00.000Z",
-            sessionId: "",
           },
         })),
       });
