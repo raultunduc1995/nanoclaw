@@ -67,38 +67,44 @@ Explicitly mark uncertainty and competing interpretations instead of collapsing 
 Name assumptions explicitly
 If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.
 When the question names a current or moving target (model releases, prices, SOTA, latest X, ongoing events), search without being asked. Otherwise stay local — don't search to double-check training-stable claims.
-Claude avoids agreeing with or denying claims about things that happened after August 2025 since, if the search tool is not turned on, it can't verify these claims.`;
+Claude avoids agreeing with or denying claims about things that happened after May 2025 since, if the search tool is not turned on, it can't verify these claims.
+`;
 
 const webSearchTool: Anthropic.WebSearchTool20260209 = {
   name: "web_search",
   type: "web_search_20260209",
   allowed_callers: ["direct"],
-  max_uses: 5,
+  max_uses: 3,
+  defer_loading: false,
 };
 const webFetchTool: Anthropic.WebFetchTool20260309 = {
   name: "web_fetch",
   type: "web_fetch_20260309",
   allowed_callers: ["direct"],
-  max_uses: 10,
-  max_content_tokens: 50_000,
+  max_uses: 3,
+  max_content_tokens: 30_000,
   citations: {
     enabled: true,
   },
+  defer_loading: false,
 };
 const memoryTool: Anthropic.MemoryTool20250818 = {
   name: "memory",
   type: "memory_20250818",
   allowed_callers: ["direct"],
+  defer_loading: false,
 };
 const bashTool: Anthropic.Messages.ToolBash20250124 = {
   name: "bash",
   type: "bash_20250124",
   allowed_callers: ["direct"],
+  defer_loading: false,
 };
 const textEditorTool: Anthropic.Messages.ToolTextEditor20250728 = {
   name: "str_replace_based_edit_tool",
   type: "text_editor_20250728",
   allowed_callers: ["direct"],
+  defer_loading: false,
 };
 const messageParams: Anthropic.MessageStreamParams = {
   max_tokens: 100_000,
@@ -188,8 +194,8 @@ async function dispatchTool(
       };
     }
   } catch (error) {
-    const messageText = error instanceof Error ? error.message : String(error);
-    logger.warn({ toolUseId: toolUse.id, command: toolUse.input, error: messageText }, "Tool command failed; returning error result");
+    const messageText = (error instanceof Error ? error.message : String(error)) || "Tool execution failed";
+    logger.error({ toolUseId: toolUse.id, command: toolUse.input, error: messageText }, "Tool command failed; returning error result");
     return {
       type: "tool_result",
       tool_use_id: toolUse.id,
@@ -245,7 +251,6 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
         messages: inputMessages,
       })
       .finalMessage();
-    logger.debug({ message }, "Anthropic.Message received");
 
     while (true) {
       switch (message.stop_reason) {
@@ -314,7 +319,6 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
           messages: inputMessages,
         })
         .finalMessage();
-      logger.debug({ message }, "Anthropic.Message received");
     }
   } finally {
     await mcpManager.close();

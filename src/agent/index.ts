@@ -1,7 +1,9 @@
 /* eslint-disable no-catch-all/no-catch-all */
+import fs from "fs";
+import path from "path";
 import { Temporal } from "@js-temporal/polyfill";
 import { query, countTokens, type ContentBlockParam, RefusalError, type QueryTurn } from "../client-sdk/index.js";
-import { logger, TIMEZONE } from "../core/utils/index.js";
+import { logger, TIMEZONE, GROUPS_DIR } from "../core/utils/index.js";
 import type { AgentInput, HistoryEntry } from "./types.js";
 import type { RegisteredGroup } from "../core/repositories/index.js";
 
@@ -23,6 +25,12 @@ interface AgentDeps {
   clearHistory: (jid: string) => void;
 }
 
+const loadClaudeMd = (groupFolder: string): string => {
+  const claudeMdPath = path.join(groupFolder, "CLAUDE.md");
+  if (!fs.existsSync(claudeMdPath)) return "";
+  return fs.readFileSync(claudeMdPath, "utf-8").trim();
+};
+
 export const createAgent = (deps: AgentDeps): Agent => {
   const { onOutput, onError } = deps;
 
@@ -31,8 +39,24 @@ export const createAgent = (deps: AgentDeps): Agent => {
     deps.appendHistory(chatJid, history.length - 1, entry);
   };
 
+  const injectClaudeMd = (chatJid: string, history: Array<HistoryEntry>, groupPath: string) => {
+    if (history.length > 0) return;
+    const content = loadClaudeMd(groupPath);
+    if (!content) return;
+    logger.info({ chatJid }, "Injecting CLAUDE.md into empty history");
+    appendToHistory(chatJid, history, {
+      role: "user",
+      content: [{ type: "text", text: wrapMessage("System", `CLAUDE.md instructions:\n${content}`) }],
+    });
+    appendToHistory(chatJid, history, {
+      role: "assistant",
+      content: [{ type: "text", text: "Understood." }],
+    });
+  };
+
   const handleResponse = async (chatJid: string, history: Array<HistoryEntry>, response: QueryTurn) => {
     const { role, turn } = response;
+    logger.debug({ chatJid, role, turn }, "Received response from query");
 
     if (role === "user") {
       appendToHistory(chatJid, history, turn);
@@ -129,7 +153,6 @@ export const createAgent = (deps: AgentDeps): Agent => {
         },
       ],
     };
-
     for await (const turn of query([...history, compactionPrompt], group)) {
       await handleResponse(chatJid, history, turn);
     }
@@ -149,29 +172,33 @@ export const createAgent = (deps: AgentDeps): Agent => {
     logger.debug({ chatJid, input }, "Received input from the user");
 
     const history = deps.loadHistory(chatJid);
+    injectClaudeMd(chatJid, history, path.join(GROUPS_DIR, input.group.folder));
     const rollbackLength = history.length;
-    const wrappedUserPrompt = wrapMessage(input.userName, input.prompt);
+
     const content: Array<ContentBlockParam> =
       input.kind === "image"
         ? [
             { type: "image", source: { type: "base64", media_type: input.imageMimeType, data: input.imageBase64 } },
-            { type: "text", text: wrappedUserPrompt },
+            { type: "text", text: wrapMessage(input.userName, input.prompt) },
           ]
-        : [{ type: "text", text: wrappedUserPrompt }];
+        : [{ type: "text", text: wrapMessage(input.userName, input.prompt) }];
     appendToHistory(chatJid, history, { role: "user", content });
 
     try {
       for await (const response of query(history, input.group)) {
         await handleResponse(chatJid, history, response);
       }
+
       const promptTokensAfterThisTurn = await countTokens(history);
       logger.debug({ promptTokensAfterThisTurn }, "Tokens used on this turn");
-      if (promptTokensAfterThisTurn >= 100_000) {
+      await onOutput({ chatJid, message: `Tokens used: ${promptTokensAfterThisTurn}` });
+      if (promptTokensAfterThisTurn >= 150_000) {
         await runCompaction(chatJid, history, input.group);
       }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
       let errorMessage: string;
+
       if (err instanceof RefusalError) {
         logger.error({ chatJid }, "Refusal - clearing history");
         deps.clearHistory(chatJid);
@@ -181,6 +208,7 @@ export const createAgent = (deps: AgentDeps): Agent => {
         deps.deleteHistoryFrom(chatJid, rollbackLength);
         errorMessage = err.message;
       }
+
       await onError({ chatJid, message: errorMessage });
     }
   };
