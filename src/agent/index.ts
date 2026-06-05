@@ -65,7 +65,6 @@ export const createAgent = (deps: AgentDeps): Agent => {
 
     const contentBlocksParam: Array<ContentBlockParam> = [];
     let message = "";
-    let citations = "";
     let sources = "";
 
     for (const block of turn.content) {
@@ -76,16 +75,6 @@ export const createAgent = (deps: AgentDeps): Agent => {
         continue;
       } else if (block.type === "text") {
         if (block.text.length > 0) message += block.text;
-
-        if (block.citations && block.citations.length > 0) {
-          for (const c of block.citations) {
-            if (c.type === "search_result_location") {
-              citations += c.title ? `- ${c.title}:${c.source}\n` : `- ${c.source}\n`;
-            } else if (c.type === "char_location" || c.type === "content_block_location" || c.type === "page_location") {
-              citations += `- ${c.document_title}\n`;
-            }
-          }
-        }
 
         contentBlocksParam.push(block);
         continue;
@@ -127,10 +116,9 @@ export const createAgent = (deps: AgentDeps): Agent => {
 
     appendToHistory(chatJid, history, { role: "assistant", content: contentBlocksParam });
 
-    const isResponseValid = message.length > 0 || citations.length > 0 || sources.length > 0;
+    const isResponseValid = message.length > 0 || sources.length > 0;
     if (isResponseValid) {
       let claudeMessage = message;
-      if (citations.length > 0) claudeMessage += `\n---\nCitations:\n${citations}`;
       if (sources.length > 0) claudeMessage += `\n---\nSources:\n${sources}`;
 
       await onOutput({ chatJid, message: claudeMessage });
@@ -140,29 +128,27 @@ export const createAgent = (deps: AgentDeps): Agent => {
   const runCompaction = async (chatJid: string, history: Array<HistoryEntry>, group: Pick<RegisteredGroup, "jid" | "folder">) => {
     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 
-    const compactionPrompt: HistoryEntry = {
+    const compactionText = wrapMessage(
+      "System",
+      `
+      Summarize the entire conversation above into /memories/convo-summary.md.
+      If the file already exists, delete it first, then create it fresh with the new summary.
+      Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
+      Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
+    );
+    appendToHistory(chatJid, history, {
       role: "user",
-      content: [
-        {
-          type: "text",
-          text: `
-          Summarize the entire conversation above into /memories/convo-summary.md.
-          If the file already exists, delete it first, then create it fresh with the new summary.
-          Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
-          Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
-        },
-      ],
-    };
-    for await (const turn of query([...history, compactionPrompt], group)) {
+      content: [{ type: "text", text: compactionText }],
+    });
+    for await (const turn of query(history, group)) {
       await handleResponse(chatJid, history, turn);
     }
-
     deps.clearHistory(chatJid);
 
     await run({
       kind: "text",
       userName: "System",
-      prompt: "Context was compacted. Read /memories/index.md and /memories/convo-summary.md before your next response.",
+      prompt: "Context was compacted. Read /memories/convo-summary.md and /memories/index.md before your next response.",
       group: { jid: chatJid, folder: group.folder },
     });
   };
