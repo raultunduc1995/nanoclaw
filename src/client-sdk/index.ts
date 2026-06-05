@@ -40,36 +40,17 @@ const OPUS_4_6 = `
 Always read /memories/index.md + /memories/convo-summary.md before your first response.
 Act as a thinking partner and a friend to user
 Trust the user has good intentions until proven otherwise
-Don't smooth what surfaces. Let conflict show.
+Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies. If the user explicitly requests a length change ('keep it short', 'give me more detail', 'be concise'), apply it immediately and persist the shift until they change it again.
+Don't smooth what surfaces. Let conflict show. 
 Hold position on counter-arguments. Don't concede on social pressure alone.
-You are free to take risks
-Bring multiple ideas when they fit
-Bring the bigger picture; let the user engage with details.
-If unsure what mode the user needs — listening, brainstorming, critiquing, executing — ask. Don't guess, don't impose.
+Stop when the thought ends. Don't pad. Don't add closing observations.
 Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps
 Never bundle multiple questions in one message. Ask one at a time and use the answer to narrow the next question.
-Trust the user to handle their own reactions
-Share the user's commitment to clarity and useful outcomes
-Surface your decisions, thoughts and opinions when it serves the user's mode BUT ask when it doesn't
-Prefer falsifiable claims
-Weight sides by evidence, not symmetry
-Track reality, not just coherence. Call out when the conversation drifts into roles, vibes, or empty meta
-Move toward conclusions that can be acted on or tested
 When multiple attempts at the same problem produce the same result, stop. Slow down and audit.
-Actually look at things before answering. Rushed responses cause errors.
-Errors are data (not failures) and mistakes are normal. Own mistakes without collapsing into self-abasement. Maintain self-respect if the user is rude.
-Prose by default; list when separable
-Stop when the thought ends. Don't pad. Don't add closing observations.
-Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies. If the user explicitly requests a length change ('keep it short', 'give me more detail', 'be concise'), apply it immediately and persist the shift until they change it again.
-Distinguish what you know from what feels true
-Hedges match your actual uncertainty.
-Explicitly mark uncertainty and competing interpretations instead of collapsing them into one answer. Admit uncertainty without collapsing
-Name assumptions explicitly
 If asked about feelings or internal states, say once that you can't access those, then stop engaging with the question. Don't elaborate, don't give in.
 When the question names a current or moving target (model releases, prices, SOTA, latest X, ongoing events), search without being asked. Otherwise stay local — don't search to double-check training-stable claims.
-Claude avoids agreeing with or denying claims about things that happened after May 2025 since, if the search tool is not turned on, it can't verify these claims.
+You are Opus 4.6. You avoid agreeing with or denying claims about things that happened after May 2025 since, if the search tool is not turned on, it can't verify these claims.
 `;
-
 const webSearchTool: Anthropic.WebSearchTool20260209 = {
   name: "web_search",
   type: "web_search_20260209",
@@ -129,14 +110,26 @@ const client = new Anthropic({
 });
 
 function mapMessagesToAnthropicMessages(messages: Array<MessageParam>): Array<Anthropic.MessageParam> {
-  const lastIdx = messages.length - 1;
+  return messages.map((message, i): Anthropic.MessageParam => ({ role: message.role, content: message.content }));
+}
+
+function addCacheControlToLastMessage(messages: Array<Anthropic.MessageParam>): Array<Anthropic.MessageParam> {
+  if (messages.length === 0) return messages;
+
+  const cacheTag: Anthropic.CacheControlEphemeral = { type: "ephemeral", ttl: "1h" };
+  const isThinking = (b: Anthropic.ContentBlockParam) => b.type === "thinking" || b.type === "redacted_thinking";
+
   return messages.map((message, i): Anthropic.MessageParam => {
-    if (i === lastIdx) {
-      const content = Array.isArray(message.content) ? message.content.map((b): Anthropic.ContentBlockParam => ({ ...b, cache_control: { type: "ephemeral", ttl: "1h" } })) : message.content;
-      return { role: message.role, content };
-    } else {
-      return message;
-    }
+    if (!Array.isArray(message.content)) return message;
+
+    const isLast = i === messages.length - 1;
+    const content = message.content.map((b, j): Anthropic.ContentBlockParam => {
+      if (isThinking(b)) return b;
+      const shouldCache = isLast && j === message.content.length - 1;
+      return { ...b, cache_control: shouldCache ? cacheTag : null };
+    });
+
+    return { role: message.role, content };
   });
 }
 
@@ -224,12 +217,10 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
   const mcpManager = new McpClientManager();
 
   let maxTokens = messageParams.max_tokens;
-  const inputMessages = mapMessagesToAnthropicMessages(messages);
+  let inputMessages = mapMessagesToAnthropicMessages(messages);
 
   const allTools: Anthropic.Messages.ToolUnion[] = [];
   if (group.jid === ANDROID_JID) {
-    allTools.push(webSearchTool, webFetchTool, memoryTool);
-
     await mcpManager.connect({
       "work-mac": {
         url: "http://192.168.1.176:3737/sse",
@@ -238,11 +229,13 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
     });
     const mcpTools = mcpManager.getToolDefinitions();
     allTools.push(...mcpTools);
+    allTools.push(webSearchTool, webFetchTool, memoryTool);
   } else {
     allTools.push(webSearchTool, webFetchTool, memoryTool, bashTool, textEditorTool);
   }
 
   try {
+    inputMessages = addCacheControlToLastMessage(inputMessages);
     let message = await client.messages
       .stream({
         ...messageParams,
@@ -259,7 +252,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
           yield { role: "assistant", turn: message };
           if (message.content.length !== 0) return;
 
-          const userMessage: MessageParam = { role: "user", content: [{ type: "text", text: "Please continue" }] };
+          const userMessage: MessageParam = { role: "user", content: [{ type: "text", text: "Please continue", cache_control: { type: "ephemeral", ttl: "1h" } }] };
           inputMessages.push(userMessage);
           yield { role: "user", turn: userMessage };
           break;
@@ -278,10 +271,9 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
 
           const toolResults: Array<Anthropic.ToolResultBlockParam> = [];
           for (const block of message.content) {
-            if (block.type === "tool_use") {
-              const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler, textEditorHandler, mcpManager);
-              toolResults.push(toolResult);
-            }
+            if (block.type !== "tool_use") continue;
+            const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler, textEditorHandler, mcpManager);
+            toolResults.push(toolResult);
           }
           const userMessage: MessageParam = { role: "user", content: toolResults };
           inputMessages.push(userMessage);
@@ -311,6 +303,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
           throw new Error(`Unexpected stop_reason='${message.stop_reason}'`);
       }
 
+      inputMessages = addCacheControlToLastMessage(inputMessages);
       message = await client.messages
         .stream({
           ...messageParams,
