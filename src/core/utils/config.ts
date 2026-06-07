@@ -9,6 +9,11 @@ export const GROUPS_DIR = path.resolve(PROJECT_ROOT, "groups");
 
 export const MCP_AUTH_SECRET = process.env.MCP_AUTH_SECRET || "";
 
+export const X_API_KEY = process.env.X_API_KEY || "";
+export const X_API_SECRET = process.env.X_API_SECRET || "";
+export const X_ACCESS_TOKEN = process.env.X_ACCESS_TOKEN || "";
+export const X_ACCESS_TOKEN_SECRET = process.env.X_ACCESS_TOKEN_SECRET || "";
+
 function resolveTimezone(): string {
   const tz = process.env.TZ;
   if (tz) {

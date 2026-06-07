@@ -24,6 +24,7 @@
     "@js-temporal/polyfill": "^0.5.1",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@playwright/mcp": "^0.0.70",
+    "@xdevplatform/xdk": "^0.5.0",
     "better-sqlite3": "^11.10.0",
     "cron-parser": "^5.5.0",
     "dotenv": "^17.4.2",

@@ -10,6 +10,7 @@ import { MemoryTool } from "./memory-tool.js";
 import { BashTool } from "./bash-tool.js";
 import { TextEditorTool } from "./text-editor-tool.js";
 import { McpClientManager } from "./mcp-client.js";
+import { XTool, type XToolInput } from "./x-tool.js";
 import { logger, GROUPS_DIR } from "../core/utils/index.js";
 import type { MessageParam, ModelInfo, QueryTurn } from "./types.js";
 import { RefusalError } from "./types.js";
@@ -87,6 +88,22 @@ const textEditorTool: Anthropic.Messages.ToolTextEditor20250728 = {
   allowed_callers: ["direct"],
   defer_loading: false,
 };
+const xTool: Anthropic.Messages.Tool = {
+  name: "x_post",
+  description:
+    "Post, delete, search, or lookup tweets on X (Twitter) on behalf of @TunducR. Use kind='post' for new tweets, kind='delete' to delete a tweet, kind='search' to search recent tweets, kind='lookup' to get a tweet by ID.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      kind: { type: "string", enum: ["post", "delete", "search", "lookup"], description: "The action to perform" },
+      text: { type: "string", description: "Tweet text (required for post)" },
+      tweet_id: { type: "string", description: "Tweet ID to delete or lookup (required for delete and lookup)" },
+      query: { type: "string", description: "Search query (required for search)" },
+    },
+    required: ["kind"],
+  },
+};
+
 const messageParams: Anthropic.MessageStreamParams = {
   max_tokens: 100_000,
   messages: [],
@@ -147,7 +164,8 @@ async function dispatchTool(
   memoryToolHandler: BetaRunnableTool<Anthropic.Beta.BetaMemoryTool20250818Command>,
   bashToolHandler: BashTool,
   textEditorHandler: TextEditorTool,
-  mcpManager: McpClientManager,
+  mcpManager: McpClientManager | null,
+  xToolHandler: XTool | null,
 ): Promise<Anthropic.ToolResultBlockParam> {
   try {
     if (toolUse.name === memoryTool.name) {
@@ -178,7 +196,16 @@ async function dispatchTool(
       };
     }
 
-    if (mcpManager.handles(toolUse.name)) {
+    if (toolUse.name === xTool.name && xToolHandler) {
+      const result = await xToolHandler.execute(toolUse.input as XToolInput);
+      return {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: result,
+      };
+    }
+
+    if (mcpManager && mcpManager.handles(toolUse.name)) {
       const result = await mcpManager.callTool(toolUse.name, toolUse.input as Record<string, unknown>);
       return {
         type: "tool_result",
@@ -214,13 +241,15 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
   const memoryToolHandler = betaMemoryTool(await MemoryTool.init(groupPath));
   const bashToolHandler = BashTool.init(os.homedir());
   const textEditorHandler = TextEditorTool.init(os.homedir());
-  const mcpManager = new McpClientManager();
+  let mcpManager: McpClientManager | null = null;
+  const xToolHandler = XTool.init();
 
   let maxTokens = messageParams.max_tokens;
   let inputMessages = mapMessagesToAnthropicMessages(messages);
 
   const allTools: Anthropic.Messages.ToolUnion[] = [];
   if (group.jid === ANDROID_JID) {
+    mcpManager = new McpClientManager();
     await mcpManager.connect({
       "work-mac": {
         url: "http://192.168.1.176:3737/sse",
@@ -232,6 +261,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
     allTools.push(webSearchTool, webFetchTool, memoryTool);
   } else {
     allTools.push(webSearchTool, webFetchTool, memoryTool, bashTool, textEditorTool);
+    if (xToolHandler) allTools.push(xTool);
   }
 
   try {
@@ -272,7 +302,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
           const toolResults: Array<Anthropic.ToolResultBlockParam> = [];
           for (const block of message.content) {
             if (block.type !== "tool_use") continue;
-            const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler, textEditorHandler, mcpManager);
+            const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler, textEditorHandler, mcpManager, xToolHandler);
             toolResults.push(toolResult);
           }
           const userMessage: MessageParam = { role: "user", content: toolResults };
@@ -314,7 +344,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
         .finalMessage();
     }
   } finally {
-    await mcpManager.close();
+    if (mcpManager) await mcpManager.close();
   }
 }
 
