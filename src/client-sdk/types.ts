@@ -24,8 +24,6 @@ export type MessageParam = Pick<Anthropic.MessageParam, "role"> & {
 export type Message = Pick<Anthropic.Message, "type" | "role" | "content" | "stop_reason">;
 export type QueryTurn = { role: "user"; turn: MessageParam } | { role: "assistant"; turn: Message };
 
-export type ModelInfo = Anthropic.ModelInfo;
-
 export class RefusalError extends Error {
   constructor(message = "Claude refused to process this request") {
     super(message);

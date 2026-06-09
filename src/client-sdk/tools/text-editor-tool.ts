@@ -49,8 +49,7 @@ function parseCommand(input: Record<string, unknown>): EditorCommand {
 
     case "str_replace":
       if (input.old_str === undefined) throw new Error("Error: old_str is required for str_replace command.");
-      if (input.new_str === undefined) throw new Error("Error: new_str is required for str_replace command.");
-      return { command: "str_replace", path: input.path as string, old_str: input.old_str as string, new_str: input.new_str as string };
+      return { command: "str_replace", path: input.path as string, old_str: input.old_str as string, new_str: (input.new_str as string) ?? "" };
 
     case "create":
       if (input.file_text === undefined) throw new Error("Error: file_text is required for create command.");
@@ -190,7 +189,7 @@ export class TextEditorTool {
       const dirContents = await readdir(dirPath);
 
       for (const item of dirContents.sort()) {
-        if (item === "node_modules") continue;
+        if (item.startsWith(".")) continue;
 
         const itemPath = path.join(dirPath, item);
         const itemRelativePath = relativePath ? `${relativePath}/${item}` : item;
@@ -204,7 +203,6 @@ export class TextEditorTool {
 
         if (itemStat.isDirectory()) {
           items.push({ size: formatFileSize(itemStat.size), path: `${itemRelativePath}/` });
-          await collectItems(itemPath, itemRelativePath);
         } else if (itemStat.isFile()) {
           items.push({ size: formatFileSize(itemStat.size), path: itemRelativePath });
         }

@@ -6,13 +6,16 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaMemoryTool } from "@anthropic-ai/sdk/helpers/beta/memory";
 import type { BetaRunnableTool } from "@anthropic-ai/sdk/lib/tools/BetaRunnableTool.js";
 
-import { MemoryTool } from "./memory-tool.js";
-import { BashTool } from "./bash-tool.js";
-import { TextEditorTool } from "./text-editor-tool.js";
-import { McpClientManager } from "./mcp-client.js";
-import { XTool, type XToolInput } from "./x-tool.js";
+import { MemoryTool } from "./tools/memory-tool.js";
+import { BashTool } from "./tools/bash-tool.js";
+import { TextEditorTool } from "./tools/text-editor-tool.js";
+import { McpClientManager } from "./tools/mcp-client.js";
+import { XTool, type XToolInput } from "./tools/x-tool.js";
+import { createDelegateTaskTool, type DelegateTaskTool } from "./tools/delegate-task-tool.js";
+import { memoryTool, bashTool, textEditorTool, xTool, delegateTaskTool } from "./tools-definitions.js";
+import { client } from "./anthropic-client.js";
 import { logger, GROUPS_DIR } from "../core/utils/index.js";
-import type { MessageParam, ModelInfo, QueryTurn } from "./types.js";
+import type { MessageParam, QueryTurn } from "./types.js";
 import { RefusalError } from "./types.js";
 import type { RegisteredGroup } from "../core/repositories/index.js";
 import { MCP_AUTH_SECRET } from "../core/utils/config.js";
@@ -30,10 +33,8 @@ export type {
   MessageParam,
   Message,
   QueryTurn,
-  ModelInfo,
 } from "./types.js";
 export { RefusalError } from "./types.js";
-export type { McpServerConfig } from "./mcp-client.js";
 
 const ANDROID_JID = `tg:-5186159689`;
 
@@ -52,57 +53,6 @@ If asked about feelings or internal states, say once that you can't access those
 When the question names a current or moving target (model releases, prices, SOTA, latest X, ongoing events), search without being asked. Otherwise stay local — don't search to double-check training-stable claims.
 You are Opus 4.6. You avoid agreeing with or denying claims about things that happened after May 2025 since, if the search tool is not turned on, it can't verify these claims.
 `;
-const webSearchTool: Anthropic.WebSearchTool20260209 = {
-  name: "web_search",
-  type: "web_search_20260209",
-  allowed_callers: ["direct"],
-  max_uses: 3,
-  defer_loading: false,
-};
-const webFetchTool: Anthropic.WebFetchTool20260309 = {
-  name: "web_fetch",
-  type: "web_fetch_20260309",
-  allowed_callers: ["direct"],
-  max_uses: 3,
-  max_content_tokens: 30_000,
-  citations: {
-    enabled: true,
-  },
-  defer_loading: false,
-};
-const memoryTool: Anthropic.MemoryTool20250818 = {
-  name: "memory",
-  type: "memory_20250818",
-  allowed_callers: ["direct"],
-  defer_loading: false,
-};
-const bashTool: Anthropic.Messages.ToolBash20250124 = {
-  name: "bash",
-  type: "bash_20250124",
-  allowed_callers: ["direct"],
-  defer_loading: false,
-};
-const textEditorTool: Anthropic.Messages.ToolTextEditor20250728 = {
-  name: "str_replace_based_edit_tool",
-  type: "text_editor_20250728",
-  allowed_callers: ["direct"],
-  defer_loading: false,
-};
-const xTool: Anthropic.Messages.Tool = {
-  name: "x_post",
-  description:
-    "Post, delete, search, or lookup tweets on X (Twitter) on behalf of @TunducR. Use kind='post' for new tweets, kind='delete' to delete a tweet, kind='search' to search recent tweets, kind='lookup' to get a tweet by ID.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      kind: { type: "string", enum: ["post", "delete", "search", "lookup"], description: "The action to perform" },
-      text: { type: "string", description: "Tweet text (required for post)" },
-      tweet_id: { type: "string", description: "Tweet ID to delete or lookup (required for delete and lookup)" },
-      query: { type: "string", description: "Search query (required for search)" },
-    },
-    required: ["kind"],
-  },
-};
 
 const messageParams: Anthropic.MessageStreamParams = {
   max_tokens: 100_000,
@@ -120,11 +70,6 @@ const messageParams: Anthropic.MessageStreamParams = {
   thinking: { type: "adaptive", display: "summarized" },
   tool_choice: { type: "auto", disable_parallel_tool_use: false },
 };
-
-const client = new Anthropic({
-  logger: logger.child({ name: "Anthropic" }),
-  logLevel: "info",
-});
 
 function mapMessagesToAnthropicMessages(messages: Array<MessageParam>): Array<Anthropic.MessageParam> {
   return messages.map((message, i): Anthropic.MessageParam => ({ role: message.role, content: message.content }));
@@ -162,10 +107,11 @@ function increaseMaxTokens(currentMaxTokens: number): number {
 async function dispatchTool(
   toolUse: Anthropic.ToolUseBlock,
   memoryToolHandler: BetaRunnableTool<Anthropic.Beta.BetaMemoryTool20250818Command>,
-  bashToolHandler: BashTool,
-  textEditorHandler: TextEditorTool,
+  bashToolHandler: BashTool | null,
+  textEditorHandler: TextEditorTool | null,
   mcpManager: McpClientManager | null,
   xToolHandler: XTool | null,
+  delegateTaskHandler: DelegateTaskTool,
 ): Promise<Anthropic.ToolResultBlockParam> {
   try {
     if (toolUse.name === memoryTool.name) {
@@ -178,7 +124,7 @@ async function dispatchTool(
       };
     }
 
-    if (toolUse.name === bashTool.name) {
+    if (bashToolHandler && toolUse.name === bashTool.name) {
       const result = await bashToolHandler.execute(toolUse.input as { command?: string; restart?: boolean });
       return {
         type: "tool_result",
@@ -187,7 +133,7 @@ async function dispatchTool(
       };
     }
 
-    if (toolUse.name === textEditorTool.name) {
+    if (textEditorHandler && toolUse.name === textEditorTool.name) {
       const result = await textEditorHandler.execute(toolUse.input as Record<string, unknown>);
       return {
         type: "tool_result",
@@ -196,8 +142,18 @@ async function dispatchTool(
       };
     }
 
-    if (toolUse.name === xTool.name && xToolHandler) {
+    if (xToolHandler && toolUse.name === xTool.name) {
       const result = await xToolHandler.execute(toolUse.input as XToolInput);
+      return {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: result,
+      };
+    }
+
+    if (toolUse.name === delegateTaskTool.name) {
+      const { type, input, instructions } = toolUse.input as { type: "websearch" | "webfetch"; input: string; instructions: string };
+      const result = await delegateTaskHandler.query(type, input, instructions);
       return {
         type: "tool_result",
         tool_use_id: toolUse.id,
@@ -228,21 +184,14 @@ async function dispatchTool(
   throw new Error(`Tool '${toolUse.name}' not implemented`);
 }
 
-export async function listModels(): Promise<Array<ModelInfo>> {
-  const modelsInfo = [];
-  for await (const modelInfo of client.models.list()) {
-    modelsInfo.push(modelInfo);
-  }
-  return modelsInfo;
-}
-
 export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "jid" | "folder">): AsyncGenerator<QueryTurn, void> {
   const groupPath = path.join(GROUPS_DIR, group.folder);
   const memoryToolHandler = betaMemoryTool(await MemoryTool.init(groupPath));
-  const bashToolHandler = BashTool.init(os.homedir());
-  const textEditorHandler = TextEditorTool.init(os.homedir());
+  let bashToolHandler: BashTool | null = null;
+  let textEditorHandler: TextEditorTool | null = null;
   let mcpManager: McpClientManager | null = null;
-  const xToolHandler = XTool.init();
+  let xToolHandler: XTool | null = null;
+  const delegateTaskHandler = createDelegateTaskTool();
 
   let maxTokens = messageParams.max_tokens;
   let inputMessages = mapMessagesToAnthropicMessages(messages);
@@ -258,9 +207,13 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
     });
     const mcpTools = mcpManager.getToolDefinitions();
     allTools.push(...mcpTools);
-    allTools.push(webSearchTool, webFetchTool, memoryTool);
+    allTools.push(memoryTool, delegateTaskTool);
   } else {
-    allTools.push(webSearchTool, webFetchTool, memoryTool, bashTool, textEditorTool);
+    bashToolHandler = BashTool.init(os.homedir());
+    textEditorHandler = TextEditorTool.init(os.homedir());
+    xToolHandler = XTool.init();
+
+    allTools.push(memoryTool, bashTool, textEditorTool, delegateTaskTool);
     if (xToolHandler) allTools.push(xTool);
   }
 
@@ -302,7 +255,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
           const toolResults: Array<Anthropic.ToolResultBlockParam> = [];
           for (const block of message.content) {
             if (block.type !== "tool_use") continue;
-            const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler, textEditorHandler, mcpManager, xToolHandler);
+            const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler, textEditorHandler, mcpManager, xToolHandler, delegateTaskHandler);
             toolResults.push(toolResult);
           }
           const userMessage: MessageParam = { role: "user", content: toolResults };

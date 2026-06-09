@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import type Anthropic from "@anthropic-ai/sdk";
-import { logger as baseLogger } from "../core/utils/index.js";
+import { logger as baseLogger } from "../../core/utils/index.js";
 
 const logger = baseLogger.child({ name: "mcp-client" });
 

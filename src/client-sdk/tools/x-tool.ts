@@ -1,6 +1,6 @@
 import { Client, OAuth1 } from "@xdevplatform/xdk";
-import { X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET } from "../core/utils/config.js";
-import { logger } from "../core/utils/index.js";
+import { X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET } from "../../core/utils/config.js";
+import { logger } from "../../core/utils/index.js";
 
 export type PostInput = { kind: "post"; text: string };
 export type DeleteInput = { kind: "delete"; tweet_id: string };
