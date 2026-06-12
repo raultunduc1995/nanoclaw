@@ -1,5 +1,8 @@
 import type { HistoryLocalResource, HistoryRow } from "../db/index.js";
-import type { HistoryEntry } from "../../agent/types.js";
+import type { ClaudeHistoryEntry } from "../../agent/types.js";
+import { GeminiHistoryEntry } from "../../google-agent/types.js";
+
+type HistoryEntry = ClaudeHistoryEntry | GeminiHistoryEntry;
 
 export interface HistoryRepository {
   load: (jid: string) => HistoryEntry[];
@@ -10,10 +13,24 @@ export interface HistoryRepository {
 
 export const createHistoryRepository = (resource: HistoryLocalResource): HistoryRepository => ({
   load: (jid) =>
-    resource.getAll(jid).map((row: HistoryRow) => ({
-      role: row.role as "user" | "assistant",
-      content: JSON.parse(row.content),
-    })),
+    resource.getAll(jid).map((row: HistoryRow) => {
+      if (row.role === "assistant") {
+        return {
+          role: "assistant",
+          content: JSON.parse(row.content),
+        } as ClaudeHistoryEntry;
+      }
+      if (row.role === "model") {
+        return {
+          role: "model",
+          content: JSON.parse(row.content),
+        } as GeminiHistoryEntry;
+      }
+      return {
+        role: "user",
+        content: JSON.parse(row.content),
+      } as HistoryEntry;
+    }),
 
   append: (jid, seq, entry) => {
     resource.append(jid, seq, entry.role, JSON.stringify(entry.content));

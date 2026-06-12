@@ -4,23 +4,23 @@ import path from "path";
 import { Temporal } from "@js-temporal/polyfill";
 import { query, countTokens, type ContentBlockParam, RefusalError, type QueryTurn } from "../client-sdk/index.js";
 import { logger, TIMEZONE, GROUPS_DIR } from "../core/utils/index.js";
-import type { AgentInput, HistoryEntry } from "./types.js";
+import type { ClaudeAgentInput, ClaudeHistoryEntry } from "./types.js";
 import type { RegisteredGroup } from "../core/repositories/index.js";
 
-export type { AgentInput, HistoryEntry } from "./types.js";
+export type { ClaudeAgentInput, ClaudeHistoryEntry } from "./types.js";
 
-export interface Agent {
-  run: (input: AgentInput) => Promise<void>;
+export interface ClaudeAgent {
+  run: (input: ClaudeAgentInput) => Promise<void>;
 }
 
 const formatDateTime = (): string => Temporal.Now.zonedDateTimeISO(TIMEZONE).toPlainDateTime().toString({ fractionalSecondDigits: 0 });
 const wrapMessage = (senderName: string, content: string): string => `[${formatDateTime()}] ${senderName}:\n${content}`;
 
-interface AgentDeps {
+interface ClaudeAgentDeps {
   onOutput: (result: { chatJid: string; message: string }) => Promise<void>;
   onError: (error: { chatJid: string; message: string }) => Promise<void>;
-  loadHistory: (jid: string) => HistoryEntry[];
-  appendHistory: (jid: string, seq: number, entry: HistoryEntry) => void;
+  loadHistory: (jid: string) => ClaudeHistoryEntry[];
+  appendHistory: (jid: string, seq: number, entry: ClaudeHistoryEntry) => void;
   deleteHistoryFrom: (jid: string, fromSeq: number) => void;
   clearHistory: (jid: string) => void;
 }
@@ -31,15 +31,15 @@ const loadClaudeMd = (groupFolder: string): string => {
   return fs.readFileSync(claudeMdPath, "utf-8").trim();
 };
 
-export const createAgent = (deps: AgentDeps): Agent => {
+export const createClaudeAgent = (deps: ClaudeAgentDeps): ClaudeAgent => {
   const { onOutput, onError } = deps;
 
-  const appendToHistory = (chatJid: string, history: Array<HistoryEntry>, entry: HistoryEntry) => {
+  const appendToHistory = (chatJid: string, history: Array<ClaudeHistoryEntry>, entry: ClaudeHistoryEntry) => {
     history.push(entry);
     deps.appendHistory(chatJid, history.length - 1, entry);
   };
 
-  const injectClaudeMd = (chatJid: string, history: Array<HistoryEntry>, groupPath: string) => {
+  const injectClaudeMd = (chatJid: string, history: Array<ClaudeHistoryEntry>, groupPath: string) => {
     if (history.length > 0) return;
     const content = loadClaudeMd(groupPath);
     if (!content) return;
@@ -54,7 +54,7 @@ export const createAgent = (deps: AgentDeps): Agent => {
     });
   };
 
-  const handleResponse = async (chatJid: string, history: Array<HistoryEntry>, response: QueryTurn) => {
+  const handleResponse = async (chatJid: string, history: Array<ClaudeHistoryEntry>, response: QueryTurn) => {
     const { role, turn } = response;
     logger.debug({ chatJid, role, turn }, "Received response from query");
 
@@ -125,7 +125,7 @@ export const createAgent = (deps: AgentDeps): Agent => {
     }
   };
 
-  const runCompaction = async (chatJid: string, history: Array<HistoryEntry>, group: Pick<RegisteredGroup, "jid" | "folder">) => {
+  const runCompaction = async (chatJid: string, history: Array<ClaudeHistoryEntry>, group: Pick<RegisteredGroup, "jid" | "folder">) => {
     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 
     const compactionText = wrapMessage(
@@ -153,7 +153,7 @@ export const createAgent = (deps: AgentDeps): Agent => {
     });
   };
 
-  const run = async (input: AgentInput): Promise<void> => {
+  const run = async (input: ClaudeAgentInput): Promise<void> => {
     const chatJid = input.group.jid;
     logger.debug({ chatJid, input }, "Received input from the user");
 
@@ -186,9 +186,9 @@ export const createAgent = (deps: AgentDeps): Agent => {
       let errorMessage: string;
 
       if (err instanceof RefusalError) {
-        logger.error({ chatJid }, "Refusal - clearing history");
-        deps.clearHistory(chatJid);
-        errorMessage = "Claude refused to answer";
+        logger.error({ chatJid }, "Refusal - rolling back last exchange");
+        deps.deleteHistoryFrom(chatJid, rollbackLength);
+        errorMessage = "Error: Claude refused to answer";
       } else {
         logger.error({ err }, "Error during query iteration");
         deps.deleteHistoryFrom(chatJid, rollbackLength);

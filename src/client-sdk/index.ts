@@ -7,8 +7,8 @@ import { betaMemoryTool } from "@anthropic-ai/sdk/helpers/beta/memory";
 import type { BetaRunnableTool } from "@anthropic-ai/sdk/lib/tools/BetaRunnableTool.js";
 
 import { MemoryTool } from "./tools/memory-tool.js";
-import { BashTool } from "./tools/bash-tool.js";
-import { TextEditorTool } from "./tools/text-editor-tool.js";
+import { BashTool } from "../core/common/tools/bash-tool.js";
+import { TextEditorTool } from "../core/common/tools/text-editor-tool.js";
 import { McpClientManager } from "./tools/mcp-client.js";
 import { XTool, type XToolInput } from "./tools/x-tool.js";
 import { createDelegateTaskTool, type DelegateTaskTool } from "./tools/delegate-task-tool.js";
@@ -58,7 +58,7 @@ const messageParams: Anthropic.MessageStreamParams = {
   max_tokens: 100_000,
   messages: [],
   model: "claude-opus-4-6",
-  output_config: { effort: "high" },
+  output_config: { effort: "medium" },
   service_tier: "auto",
   system: [
     {
@@ -72,7 +72,7 @@ const messageParams: Anthropic.MessageStreamParams = {
 };
 
 function mapMessagesToAnthropicMessages(messages: Array<MessageParam>): Array<Anthropic.MessageParam> {
-  return messages.map((message, i): Anthropic.MessageParam => ({ role: message.role, content: message.content }));
+  return messages.map((message) => ({ role: message.role, content: message.content }) as Anthropic.MessageParam);
 }
 
 function addCacheControlToLastMessage(messages: Array<Anthropic.MessageParam>): Array<Anthropic.MessageParam> {
@@ -218,17 +218,18 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
   }
 
   try {
-    inputMessages = addCacheControlToLastMessage(inputMessages);
-    let message = await client.messages
-      .stream({
-        ...messageParams,
-        tools: allTools,
-        max_tokens: maxTokens,
-        messages: inputMessages,
-      })
-      .finalMessage();
-
     while (true) {
+      inputMessages = addCacheControlToLastMessage(inputMessages);
+      let message = await client.messages
+        .stream({
+          ...messageParams,
+          tools: allTools,
+          max_tokens: maxTokens,
+          messages: inputMessages,
+        })
+        .finalMessage();
+      logger.debug({ message }, "New message from Anthropic API");
+
       switch (message.stop_reason) {
         case "end_turn": {
           inputMessages.push({ role: message.role, content: message.content });
@@ -285,16 +286,6 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
           logger.error({ stop_reason: message.stop_reason, stop_details: message.stop_details }, "Unknown stop_reason");
           throw new Error(`Unexpected stop_reason='${message.stop_reason}'`);
       }
-
-      inputMessages = addCacheControlToLastMessage(inputMessages);
-      message = await client.messages
-        .stream({
-          ...messageParams,
-          tools: allTools,
-          max_tokens: maxTokens,
-          messages: inputMessages,
-        })
-        .finalMessage();
     }
   } finally {
     if (mcpManager) await mcpManager.close();

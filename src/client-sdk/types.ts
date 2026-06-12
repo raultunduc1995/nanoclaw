@@ -21,7 +21,7 @@ export type ContentBlockParam =
 export type MessageParam = Pick<Anthropic.MessageParam, "role"> & {
   content: Array<ContentBlockParam>;
 };
-export type Message = Pick<Anthropic.Message, "type" | "role" | "content" | "stop_reason">;
+export type Message = Pick<Anthropic.Message, "role" | "content">;
 export type QueryTurn = { role: "user"; turn: MessageParam } | { role: "assistant"; turn: Message };
 
 export class RefusalError extends Error {

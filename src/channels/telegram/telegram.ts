@@ -43,7 +43,7 @@ export class TelegramChannel implements Channel {
       const chatJid = `tg:${ctx.chat.id}`;
       const group = this.opts.getRegisteredGroups()[chatJid];
       if (!group) {
-        logger.debug({ chatJid }, "Message from unregistered Telegram chat");
+        logger.warn({ chatJid }, "Message from unregistered Telegram chat");
         return;
       }
 
@@ -58,7 +58,7 @@ export class TelegramChannel implements Channel {
       const chatJid = `tg:${ctx.chat.id}`;
       const group = this.opts.getRegisteredGroups()[chatJid];
       if (!group) {
-        logger.debug({ chatJid }, "Message from unregistered Telegram chat");
+        logger.warn({ chatJid }, "Message from unregistered Telegram chat");
         return;
       }
 

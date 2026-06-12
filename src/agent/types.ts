@@ -2,23 +2,23 @@ import type { ContentBlockParam } from "../client-sdk/index.js";
 import type { ImageMimeType } from "../core/common/index.js";
 import { RegisteredGroup } from "../core/repositories/groups-repository.js";
 
-interface AgentInputBase {
+interface ClaudeAgentInputBase {
   userName: string;
   prompt: string;
   group: Pick<RegisteredGroup, "jid" | "folder">;
 }
-interface AgentTextInput extends AgentInputBase {
+interface ClaudeAgentTextInput extends ClaudeAgentInputBase {
   kind: "text";
 }
-interface AgentImageInput extends AgentInputBase {
+interface ClaudeAgentImageInput extends ClaudeAgentInputBase {
   kind: "image";
   imageBase64: string;
   imageMimeType: ImageMimeType;
 }
 
-export type AgentInput = AgentTextInput | AgentImageInput;
+export type ClaudeAgentInput = ClaudeAgentTextInput | ClaudeAgentImageInput;
 
-export type HistoryEntry = {
+export type ClaudeHistoryEntry = {
   role: "user" | "assistant";
   content: Array<ContentBlockParam>;
 };

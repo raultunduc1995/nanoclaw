@@ -14,6 +14,8 @@ export const X_API_SECRET = process.env.X_API_SECRET || "";
 export const X_ACCESS_TOKEN = process.env.X_ACCESS_TOKEN || "";
 export const X_ACCESS_TOKEN_SECRET = process.env.X_ACCESS_TOKEN_SECRET || "";
 
+export const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+
 function resolveTimezone(): string {
   const tz = process.env.TZ;
   if (tz) {

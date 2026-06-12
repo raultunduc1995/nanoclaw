@@ -4,12 +4,14 @@ import { createChannelsRegistry, type ChannelsRegistry, type TelegramChannelOpts
 import { initLocalDatabase } from "./core/db/index.js";
 import { createGroupsRepository, createHistoryRepository, type GroupsRepository } from "./core/repositories/index.js";
 // import { startVoiceServer } from "./voice/index.js";
-import { createAgent, type Agent, type AgentInput } from "./agent/index.js";
+import { createClaudeAgent, type ClaudeAgent, type ClaudeAgentInput, type ClaudeHistoryEntry } from "./agent/index.js";
 import { ImageMimeType } from "./core/common/index.js";
+import { createGeminiAgent, type GeminiAgent, type GeminiAgentInput, type GeminiHistoryEntry } from "./google-agent/index.js";
 
 let groupsRepo: GroupsRepository;
 let channelsRegistry: ChannelsRegistry;
-let agent: Agent;
+let geminiAgent: GeminiAgent;
+let claudeAgent: ClaudeAgent;
 let groupQueue: GroupQueue;
 
 const initMain = () => {
@@ -19,7 +21,7 @@ const initMain = () => {
   groupsRepo = createGroupsRepository(localResource.groups);
   const historyRepo = createHistoryRepository(localResource.history);
 
-  agent = createAgent({
+  geminiAgent = createGeminiAgent({
     onOutput: async ({ chatJid, message }) => {
       const channel = channelsRegistry.findChannel(chatJid);
       if (channel) {
@@ -32,7 +34,52 @@ const initMain = () => {
         await channel.sendMessage(chatJid, `Error: ${message}`);
       }
     },
-    loadHistory: historyRepo.load,
+    loadHistory: function (jid: string): GeminiHistoryEntry[] {
+      return historyRepo.load(jid).map((e): GeminiHistoryEntry => {
+        if (e.role === "model") {
+          return {
+            role: "model",
+            content: e.content,
+          };
+        }
+        return {
+          role: "user",
+          content: e.content,
+        } as GeminiHistoryEntry;
+      });
+    },
+    appendHistory: historyRepo.append,
+    deleteHistoryFrom: historyRepo.deleteFrom,
+    clearHistory: historyRepo.clear,
+  });
+
+  claudeAgent = createClaudeAgent({
+    onOutput: async ({ chatJid, message }) => {
+      const channel = channelsRegistry.findChannel(chatJid);
+      if (channel) {
+        await channel.sendMessage(chatJid, message);
+      }
+    },
+    onError: async ({ chatJid, message }) => {
+      const channel = channelsRegistry.findChannel(chatJid);
+      if (channel) {
+        await channel.sendMessage(chatJid, `Error: ${message}`);
+      }
+    },
+    loadHistory: function (jid: string): ClaudeHistoryEntry[] {
+      return historyRepo.load(jid).map((e): ClaudeHistoryEntry => {
+        if (e.role === "assistant") {
+          return {
+            role: "assistant",
+            content: e.content,
+          };
+        }
+        return {
+          role: "user",
+          content: e.content,
+        } as ClaudeHistoryEntry;
+      });
+    },
     appendHistory: historyRepo.append,
     deleteHistoryFrom: historyRepo.deleteFrom,
     clearHistory: historyRepo.clear,
@@ -40,7 +87,35 @@ const initMain = () => {
 
   groupQueue = createGroupQueue({
     runBee: (input) => {
-      let agentInput!: AgentInput;
+      if (input.jid === "tg:-5274248775") {
+        let agentInput!: GeminiAgentInput;
+        if (input.kind === "text") {
+          agentInput = {
+            kind: "text",
+            userName: input.userName,
+            prompt: input.prompt,
+            group: input.group,
+          };
+        } else if (input.kind === "image") {
+          agentInput = {
+            kind: "image",
+            userName: input.userName,
+            prompt: input.prompt,
+            inlineData: {
+              data: input.imageBase64,
+              mimeType: input.imageMimeType,
+            },
+            group: input.group,
+          };
+        }
+
+        return {
+          pipe: () => logger.warn("pipe() called but streaming is not implemented in client-sdk-bee yet"),
+          done: geminiAgent.run(agentInput),
+        };
+      }
+
+      let agentInput!: ClaudeAgentInput;
       if (input.kind === "text") {
         agentInput = {
           kind: "text",
@@ -54,14 +129,14 @@ const initMain = () => {
           userName: input.userName,
           prompt: input.prompt,
           imageBase64: input.imageBase64,
-          imageMimeType: input.imageMimeType as ImageMimeType,
+          imageMimeType: input.imageMimeType,
           group: input.group,
         };
       }
 
       return {
         pipe: () => logger.warn("pipe() called but streaming is not implemented in client-sdk-bee yet"),
-        done: agent.run(agentInput),
+        done: claudeAgent.run(agentInput),
       };
     },
   });
