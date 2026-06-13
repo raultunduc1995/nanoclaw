@@ -7,8 +7,8 @@ import { betaMemoryTool } from "@anthropic-ai/sdk/helpers/beta/memory";
 import type { BetaRunnableTool } from "@anthropic-ai/sdk/lib/tools/BetaRunnableTool.js";
 
 import { MemoryTool } from "./tools/memory-tool.js";
-import { BashTool } from "../core/common/tools/bash-tool.js";
-import { TextEditorTool } from "../core/common/tools/text-editor-tool.js";
+import { BashTool } from "./tools/bash-tool.js";
+import { TextEditorTool } from "./tools/text-editor-tool.js";
 import { McpClientManager } from "./tools/mcp-client.js";
 import { XTool, type XToolInput } from "./tools/x-tool.js";
 import { createDelegateTaskTool, type DelegateTaskTool } from "./tools/delegate-task-tool.js";

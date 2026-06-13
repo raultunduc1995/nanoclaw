@@ -125,7 +125,8 @@ export const createClaudeAgent = (deps: ClaudeAgentDeps): ClaudeAgent => {
     }
   };
 
-  const runCompaction = async (chatJid: string, history: Array<ClaudeHistoryEntry>, group: Pick<RegisteredGroup, "jid" | "folder">) => {
+  const runCompaction = async (history: Array<ClaudeHistoryEntry>, group: Pick<RegisteredGroup, "jid" | "folder">) => {
+    const chatJid: string = group.jid;
     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 
     const compactionText = wrapMessage(
@@ -179,7 +180,7 @@ export const createClaudeAgent = (deps: ClaudeAgentDeps): ClaudeAgent => {
       logger.debug({ promptTokensAfterThisTurn }, "Tokens used on this turn");
       await onOutput({ chatJid, message: `Tokens used: ${promptTokensAfterThisTurn}` });
       if (promptTokensAfterThisTurn >= 150_000) {
-        await runCompaction(chatJid, history, input.group);
+        await runCompaction(history, input.group);
       }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
