@@ -1,6 +1,6 @@
 // google-genai/types.ts
 
-import { FinishReason, type Part } from "@google/genai";
+import { type Part } from "@google/genai";
 
 // Core content blocks
 export type ContentBlockParam = Part;

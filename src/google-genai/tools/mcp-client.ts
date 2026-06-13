@@ -1,11 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import type Anthropic from "@anthropic-ai/sdk";
 import { logger as baseLogger } from "../../core/utils/index.js";
 
 const logger = baseLogger.child({ name: "mcp-client" });
 
-export interface McpServerConfig {
+interface McpServerConfig {
   url: string;
   headers?: Record<string, string>;
 }
@@ -13,7 +12,12 @@ export interface McpServerConfig {
 interface McpToolDefinition {
   name: string;
   description?: string;
-  input_schema: Anthropic.Tool["input_schema"];
+  input_schema: {
+    type: "object";
+    properties?: Record<string, any>;
+    required?: string[];
+    [key: string]: any;
+  };
 }
 
 interface McpConnection {
@@ -64,7 +68,7 @@ export class McpClientManager {
         return {
           name: prefixedName,
           description: `[${serverName}] ${tool.description ?? ""}`,
-          input_schema: tool.inputSchema as Anthropic.Tool["input_schema"],
+          input_schema: tool.inputSchema as McpToolDefinition["input_schema"],
         };
       });
 
@@ -74,23 +78,6 @@ export class McpClientManager {
       logger.error({ serverName, error: err instanceof Error ? err.message : String(err) }, "Failed to connect to MCP server");
       throw err;
     }
-  }
-
-  /**
-   * Returns Anthropic tool definitions for all connected MCP servers.
-   */
-  getToolDefinitions(): Anthropic.Tool[] {
-    const tools: Anthropic.Tool[] = [];
-    for (const conn of this.connections.values()) {
-      for (const tool of conn.tools) {
-        tools.push({
-          name: tool.name,
-          description: tool.description,
-          input_schema: tool.input_schema,
-        });
-      }
-    }
-    return tools;
   }
 
   /**
@@ -124,17 +111,20 @@ export class McpClientManager {
       }
 
       const structured = result.structuredContent as Record<string, unknown> | undefined;
-      if (!structured) throw new Error("No structured content received");
 
-      if (originalName === "bash") {
+      if (originalName === "bash" && structured) {
         if (typeof structured.exitCode === "number" && structured.exitCode !== 0) {
           throw new Error(((structured.stdout as string) + (structured.stderr as string)).trim());
         }
 
         return ((structured.stdout as string) + (structured.stderr as string)).trim();
-      } else if (originalName === "text_editor") {
+      }
+
+      if (originalName === "text_editor" && structured) {
         return structured.result as string;
       }
+
+      return text;
     }
 
     throw new Error(`No MCP server handles tool '${prefixedName}'`);

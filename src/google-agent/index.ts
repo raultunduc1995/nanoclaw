@@ -45,17 +45,13 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
   const injectGeminiMd = (chatJid: string, history: Array<GeminiHistoryEntry>, groupPath: string) => {
     if (history.length > 0) return;
+
     const content = loadGeminiMd(groupPath);
     if (!content) return;
+
     logger.info({ chatJid }, "Injecting GEMINI.md instructions into empty history");
-    appendToHistory(chatJid, history, {
-      role: "user",
-      content: [{ text: wrapMessage("System", `GEMINI.md instructions:\n${content}`) }],
-    });
-    appendToHistory(chatJid, history, {
-      role: "model",
-      content: [{ text: "Understood." }],
-    });
+    appendToHistory(chatJid, history, { role: "user", content: [{ text: wrapMessage("System", `GEMINI.md instructions:\n${content}`) }] });
+    appendToHistory(chatJid, history, { role: "model", content: [{ text: "Understood." }] });
   };
 
   const handleResponse = async (chatJid: string, history: Array<GeminiHistoryEntry>, response: QueryTurn) => {
@@ -68,11 +64,10 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
     const parts: Array<ContentBlockParam> = [];
     let message = "";
-
     // Clean structural filtering matching your tools-free schemas
     for (const part of turn.parts) {
       if (part.thought && part.text) {
-        await onOutput({ chatJid, message: part.text });
+        await onOutput({ chatJid, message: `Gemini thought:\n${part.text}\n` });
         continue;
       }
 
@@ -88,63 +83,82 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     if (message.length > 0) {
       await onOutput({ chatJid, message });
     }
-
-    logger.debug({ tokenCount: turn.totalTokenCount }, "Tokens used on this turn");
     await onOutput({ chatJid, message: `Tokens used: ${turn.totalTokenCount}` });
   };
 
-  //   const runCompaction = async (chatJid: string, history: Array<GeminiHistoryEntry>, group: Pick<RegisteredGroup, "jid" | "folder">) => {
-  //     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
+  const runCompaction = async (history: Array<GeminiHistoryEntry>, group: Pick<RegisteredGroup, "jid" | "folder">) => {
+    const chatJid: string = group.jid;
+    logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 
-  //     const compactionText = wrapMessage(
-  //       "System",
-  //       `
-  //       Summarize the entire conversation above into /memories/convo-summary.md.
-  //       If the file already exists, delete it first, then create it fresh with the new summary.
-  //       Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
-  //       Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
-  //     );
+    const compactionText = wrapMessage(
+      "System",
+      `
+        Summarize the entire conversation and send it back to me.
+        Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
+        Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
+    );
 
-  //     appendToHistory(chatJid, history, {
-  //       role: "user",
-  //       content: [{ text: compactionText }],
-  //     });
+    appendToHistory(chatJid, history, { role: "user", content: [{ text: compactionText }] });
 
-  //     for await (const turn of query(history, group)) {
-  //       await handleResponse(chatJid, history, turn);
-  //     }
-  //     deps.clearHistory(chatJid);
+    const partsHistory = history.map((h): MessageParam => ({ role: h.role, parts: h.content }));
+    let queryTurn: QueryTurn | null = null;
+    for await (const turn of query(partsHistory, group)) {
+      await handleResponse(chatJid, history, turn);
+      queryTurn = turn;
+    }
+    if (!queryTurn) return;
 
-  //     await run({
-  //       kind: "text",
-  //       userName: "System",
-  //       prompt: "Context was compacted. Read /memories/convo-summary.md and /memories/index.md before your next response.",
-  //       group: { jid: chatJid, folder: group.folder },
-  //     });
-  //   };
+    deps.clearHistory(chatJid);
+
+    let summary: string = "";
+    for (const part of queryTurn.turn.parts) {
+      if (part.thought) continue;
+      if (part.text) summary += part.text + "\n\n";
+    }
+
+    await run({
+      kind: "text",
+      userName: "System",
+      prompt: wrapMessage("System", `Context was compacted. Read the convo summary below:\n\n${summary}`),
+      group: { jid: chatJid, folder: group.folder },
+    });
+    await run({
+      kind: "text",
+      userName: "System",
+      prompt: wrapMessage(
+        "System",
+        `Additionally, use your file-viewing tool to read the memory index file at '${process.cwd()}/groups/${group.folder}/memories/index.md' to see what permanent specifications and memories are available in this workspace.`,
+      ),
+      group: { jid: chatJid, folder: group.folder },
+    });
+  };
 
   const run = async (input: GeminiAgentInput): Promise<void> => {
     const chatJid = input.group.jid;
     logger.debug({ chatJid, input }, "Received input from the user");
 
     const history = deps.loadHistory(chatJid);
-    injectGeminiMd(chatJid, history, path.join(GROUPS_DIR, input.group.folder));
-    const rollbackLength = history.length;
+    // injectGeminiMd(chatJid, history, path.join(GROUPS_DIR, input.group.folder));
+    let rollbackLength = history.length;
 
     // Process new incoming contents cleanly around your flat Text vs Image block schemas
     const parts: Array<ContentBlockParam> = [];
     if (input.kind === "image") {
-      parts.push({ inlineData: input.inlineData, text: wrapMessage(input.userName, input.prompt) });
-    } else if (input.kind === "text") {
+      parts.push({ inlineData: input.inlineData });
+    }
+    if (input.prompt.length > 0) {
       parts.push({ text: wrapMessage(input.userName, input.prompt) });
     }
+    if (parts.length == 0) return;
 
     appendToHistory(chatJid, history, { role: "user", content: parts });
 
+    let queryTurn: QueryTurn | null = null;
     try {
       const partsHistory = history.map((h): MessageParam => ({ role: h.role, parts: h.content }));
       for await (const response of query(partsHistory, input.group)) {
         await handleResponse(chatJid, history, response);
+        queryTurn = response;
       }
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
@@ -159,6 +173,17 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       }
 
       await onError({ chatJid, message: errorMessage });
+    }
+
+    rollbackLength = history.length;
+    try {
+      if (queryTurn && queryTurn.role === "model" && queryTurn.turn.totalTokenCount >= 100_000) {
+        await runCompaction(history, input.group);
+      }
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      deps.deleteHistoryFrom(chatJid, rollbackLength);
+      await onError({ chatJid, message: `Compaction failed: ${err.message}` });
     }
   };
 

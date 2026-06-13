@@ -87,7 +87,7 @@ const initMain = () => {
 
   groupQueue = createGroupQueue({
     runBee: (input) => {
-      if (input.jid === "tg:-5274248775") {
+      if (input.jid === "tg:-5274248775" || input.jid === "tg:-5186159689") {
         let agentInput!: GeminiAgentInput;
         if (input.kind === "text") {
           agentInput = {

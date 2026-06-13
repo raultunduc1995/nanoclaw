@@ -9,7 +9,6 @@ import type { BetaRunnableTool } from "@anthropic-ai/sdk/lib/tools/BetaRunnableT
 import { MemoryTool } from "./tools/memory-tool.js";
 import { BashTool } from "./tools/bash-tool.js";
 import { TextEditorTool } from "./tools/text-editor-tool.js";
-import { McpClientManager } from "./tools/mcp-client.js";
 import { XTool, type XToolInput } from "./tools/x-tool.js";
 import { createDelegateTaskTool, type DelegateTaskTool } from "./tools/delegate-task-tool.js";
 import { memoryTool, bashTool, textEditorTool, xTool, delegateTaskTool } from "./tools-definitions.js";
@@ -18,7 +17,6 @@ import { logger, GROUPS_DIR } from "../core/utils/index.js";
 import type { MessageParam, QueryTurn } from "./types.js";
 import { RefusalError } from "./types.js";
 import type { RegisteredGroup } from "../core/repositories/index.js";
-import { MCP_AUTH_SECRET } from "../core/utils/config.js";
 
 export type {
   TextBlockParam,
@@ -35,8 +33,6 @@ export type {
   QueryTurn,
 } from "./types.js";
 export { RefusalError } from "./types.js";
-
-const ANDROID_JID = `tg:-5186159689`;
 
 const OPUS_4_6 = `
 Always read /memories/index.md + /memories/convo-summary.md before your first response.
@@ -109,7 +105,6 @@ async function dispatchTool(
   memoryToolHandler: BetaRunnableTool<Anthropic.Beta.BetaMemoryTool20250818Command>,
   bashToolHandler: BashTool | null,
   textEditorHandler: TextEditorTool | null,
-  mcpManager: McpClientManager | null,
   xToolHandler: XTool | null,
   delegateTaskHandler: DelegateTaskTool,
 ): Promise<Anthropic.ToolResultBlockParam> {
@@ -160,15 +155,6 @@ async function dispatchTool(
         content: result,
       };
     }
-
-    if (mcpManager && mcpManager.handles(toolUse.name)) {
-      const result = await mcpManager.callTool(toolUse.name, toolUse.input as Record<string, unknown>);
-      return {
-        type: "tool_result",
-        tool_use_id: toolUse.id,
-        content: result,
-      };
-    }
   } catch (error) {
     const messageText = (error instanceof Error ? error.message : String(error)) || "Tool execution failed";
     logger.error({ toolUseId: toolUse.id, command: toolUse.input, error: messageText }, "Tool command failed; returning error result");
@@ -189,7 +175,6 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
   const memoryToolHandler = betaMemoryTool(await MemoryTool.init(groupPath));
   let bashToolHandler: BashTool | null = null;
   let textEditorHandler: TextEditorTool | null = null;
-  let mcpManager: McpClientManager | null = null;
   let xToolHandler: XTool | null = null;
   const delegateTaskHandler = createDelegateTaskTool();
 
@@ -197,25 +182,12 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
   let inputMessages = mapMessagesToAnthropicMessages(messages);
 
   const allTools: Anthropic.Messages.ToolUnion[] = [];
-  if (group.jid === ANDROID_JID) {
-    mcpManager = new McpClientManager();
-    await mcpManager.connect({
-      "work-mac": {
-        url: "http://192.168.1.176:3737/sse",
-        headers: { "X-Auth": MCP_AUTH_SECRET },
-      },
-    });
-    const mcpTools = mcpManager.getToolDefinitions();
-    allTools.push(...mcpTools);
-    allTools.push(memoryTool, delegateTaskTool);
-  } else {
-    bashToolHandler = BashTool.init(os.homedir());
-    textEditorHandler = TextEditorTool.init(os.homedir());
-    xToolHandler = XTool.init();
+  bashToolHandler = BashTool.init(os.homedir());
+  textEditorHandler = TextEditorTool.init(os.homedir());
+  xToolHandler = XTool.init();
 
-    allTools.push(memoryTool, bashTool, textEditorTool, delegateTaskTool);
-    if (xToolHandler) allTools.push(xTool);
-  }
+  allTools.push(memoryTool, bashTool, textEditorTool, delegateTaskTool);
+  if (xToolHandler) allTools.push(xTool);
 
   try {
     while (true) {
@@ -256,7 +228,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
           const toolResults: Array<Anthropic.ToolResultBlockParam> = [];
           for (const block of message.content) {
             if (block.type !== "tool_use") continue;
-            const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler, textEditorHandler, mcpManager, xToolHandler, delegateTaskHandler);
+            const toolResult = await dispatchTool(block, memoryToolHandler, bashToolHandler, textEditorHandler, xToolHandler, delegateTaskHandler);
             toolResults.push(toolResult);
           }
           const userMessage: MessageParam = { role: "user", content: toolResults };
@@ -288,7 +260,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
       }
     }
   } finally {
-    if (mcpManager) await mcpManager.close();
+    // No-op cleanup
   }
 }
 
