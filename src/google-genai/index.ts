@@ -37,7 +37,7 @@ const GEMINI_PROMPT = `
 - If the request is a simple status check, conversation routing, or single-turn formatting, skip reasoning steps entirely.`;
 
 const ANDROID_JID = "tg:-5186159689";
-const MAX_TOOL_DEPTH = 15;
+const MAX_TOOL_DEPTH = 25;
 
 /**
  * Transforms a raw Gemini API response into your core QueryTurn schema.
