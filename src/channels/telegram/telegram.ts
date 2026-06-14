@@ -1,6 +1,7 @@
 import https from "https";
 
 import { Api, Bot, BotError } from "grammy";
+import { autoRetry } from "@grammyjs/auto-retry";
 
 import { TELEGRAM_BOT_TOKEN } from "../../core/utils/config.js";
 import { logger } from "../../core/utils/logger.js";
@@ -24,6 +25,7 @@ export class TelegramChannel implements Channel {
         baseFetchConfig: { agent: https.globalAgent, compress: true },
       },
     });
+    this.bot.api.config.use(autoRetry());
   }
 
   async connect(): Promise<void> {

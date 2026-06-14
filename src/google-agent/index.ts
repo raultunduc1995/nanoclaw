@@ -29,12 +29,6 @@ interface GeminiAgentDeps {
   clearHistory: (jid: string) => void;
 }
 
-const loadGeminiMd = (groupFolder: string): string => {
-  const geminiMdPath = path.join(groupFolder, "GEMINI.md");
-  if (!fs.existsSync(geminiMdPath)) return "";
-  return fs.readFileSync(geminiMdPath, "utf-8").trim();
-};
-
 export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
   const { onOutput, onError } = deps;
 
@@ -173,7 +167,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
     rollbackLength = history.length;
     try {
-      if (queryTurn && queryTurn.role === "model" && queryTurn.turn.totalTokenCount >= 100_000) {
+      if (queryTurn && queryTurn.role === "model" && queryTurn.turn.totalTokenCount >= 150_000) {
         await runCompaction(history, input.group);
       }
     } catch (e) {

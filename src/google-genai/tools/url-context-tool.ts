@@ -1,5 +1,5 @@
 import { HarmBlockThreshold, HarmCategory } from "@google/genai";
-import { ai } from "../../google-agent/genai-client.js";
+import ai from "../genai-client.js";
 import { logger } from "../../core/utils/logger.js";
 
 export interface UrlContextTool {

@@ -6,13 +6,13 @@ import os from "os";
 import path from "path";
 
 import { FinishReason, HarmBlockThreshold, HarmCategory, GenerateContentResponse, ThinkingLevel } from "@google/genai";
-import type { Content, FunctionCall, GenerateContentConfig, Part, ToolListUnion } from "@google/genai";
+import type { Content, FunctionCall, Part, ToolListUnion } from "@google/genai";
 
 import { logger } from "../core/utils/index.js";
 import type { MessageParam, QueryTurn, Message } from "./types.js";
 import { RefusalError } from "./types.js";
 import type { RegisteredGroup } from "../core/repositories/index.js";
-import { ai } from "../google-agent/genai-client.js";
+import ai from "./genai-client.js";
 import { functionDeclarations } from "./tools-definitions.js";
 import { BashTool } from "./tools/bash-tool.js";
 import { TextEditorTool } from "./tools/text-editor-tool.js";
@@ -39,7 +39,7 @@ const GEMINI_PROMPT = `
 - If the request is a simple status check, conversation routing, or single-turn formatting, skip reasoning steps entirely.`;
 
 const ANDROID_JID = "tg:-5186159689";
-const MAX_TOOL_DEPTH = 25;
+const MAX_TOOL_DEPTH = 30;
 
 /**
  * Transforms a raw Gemini API response into your core QueryTurn schema.
