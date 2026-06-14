@@ -43,17 +43,6 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     deps.appendHistory(chatJid, history.length - 1, entry);
   };
 
-  const injectGeminiMd = (chatJid: string, history: Array<GeminiHistoryEntry>, groupPath: string) => {
-    if (history.length > 0) return;
-
-    const content = loadGeminiMd(groupPath);
-    if (!content) return;
-
-    logger.info({ chatJid }, "Injecting GEMINI.md instructions into empty history");
-    appendToHistory(chatJid, history, { role: "user", content: [{ text: wrapMessage("System", `GEMINI.md instructions:\n${content}`) }] });
-    appendToHistory(chatJid, history, { role: "model", content: [{ text: "Understood." }] });
-  };
-
   const handleResponse = async (chatJid: string, history: Array<GeminiHistoryEntry>, response: QueryTurn) => {
     const { role, turn } = response;
 
@@ -97,9 +86,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
         Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
         Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
     );
-
     appendToHistory(chatJid, history, { role: "user", content: [{ text: compactionText }] });
-
     const partsHistory = history.map((h): MessageParam => ({ role: h.role, parts: h.content }));
     let queryTurn: QueryTurn | null = null;
     for await (const turn of query(partsHistory, group)) {
@@ -116,10 +103,20 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       if (part.text) summary += part.text + "\n\n";
     }
 
+    let contextContent = "";
+    const contextPath = path.resolve(GROUPS_DIR, group.folder, "memories", "context.md");
+    if (fs.existsSync(contextPath)) {
+      contextContent = fs.readFileSync(contextPath, "utf-8");
+    }
+
+    const promptText = contextContent
+      ? `Below are the critical relational and style preferences for our partnership. Read and internalize these FIRST:\n\n${contextContent}\n\n=========================================\n\nContext was compacted. Read the convo summary below:\n\n${summary}`
+      : `Context was compacted. Read the convo summary below:\n\n${summary}`;
+
     await run({
       kind: "text",
       userName: "System",
-      prompt: wrapMessage("System", `Context was compacted. Read the convo summary below:\n\n${summary}`),
+      prompt: wrapMessage("System", promptText),
       group: { jid: chatJid, folder: group.folder },
     });
     await run({
@@ -127,7 +124,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       userName: "System",
       prompt: wrapMessage(
         "System",
-        `Additionally, use your file-viewing tool to read the memory index file at '${process.cwd()}/groups/${group.folder}/memories/index.md' to see what permanent specifications and memories are available in this workspace.`,
+        `Additionally, use your file-viewing tool to read the memory index file at '${path.resolve(GROUPS_DIR, group.folder, "memories", "index.md")}' to see what permanent specifications and memories are available in this workspace.`,
       ),
       group: { jid: chatJid, folder: group.folder },
     });
@@ -138,7 +135,6 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     logger.debug({ chatJid, input }, "Received input from the user");
 
     const history = deps.loadHistory(chatJid);
-    // injectGeminiMd(chatJid, history, path.join(GROUPS_DIR, input.group.folder));
     let rollbackLength = history.length;
 
     // Process new incoming contents cleanly around your flat Text vs Image block schemas

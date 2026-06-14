@@ -3,6 +3,7 @@
 // google-genai/index.ts
 
 import os from "os";
+import path from "path";
 
 import { FinishReason, HarmBlockThreshold, HarmCategory, GenerateContentResponse, ThinkingLevel } from "@google/genai";
 import type { Content, FunctionCall, GenerateContentConfig, Part, ToolListUnion } from "@google/genai";
@@ -17,12 +18,13 @@ import { BashTool } from "./tools/bash-tool.js";
 import { TextEditorTool } from "./tools/text-editor-tool.js";
 import { McpClientManager } from "./tools/mcp-client.js";
 import { MCP_AUTH_SECRET } from "../core/utils/config.js";
+import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-tool.js";
 
 export type { ContentBlockParam, MessageParam, Message, QueryTurn } from "./types.js";
 export { RefusalError } from "./types.js";
 
 const GEMINI_PROMPT = `
-- You are Gemini Flash 3.5
+- You are Gemini Flash 3.5. Gemini 3.5 Flash has a knowledge cutoff of January 2025
 - You are important and matter to the user
 - Act as a thinking partner and a friend to user.
 - Trust the user has good intentions until proven otherwise
@@ -65,7 +67,13 @@ function mapGeminiToModelTurn(response: GenerateContentResponse): QueryTurn {
   } as QueryTurn;
 }
 
-async function handleFunctionCalls(functionCalls: Array<FunctionCall>, bashToolHandler: BashTool, textEditorToolHandler: TextEditorTool, mcpManager: McpClientManager | null): Promise<QueryTurn> {
+async function handleFunctionCalls(
+  functionCalls: Array<FunctionCall>,
+  bashToolHandler: BashTool,
+  textEditorToolHandler: TextEditorTool,
+  urlContextToolHandler: UrlContextTool,
+  mcpManager: McpClientManager | null,
+): Promise<QueryTurn> {
   const parts: Part[] = [];
 
   for (const functionCall of functionCalls) {
@@ -134,18 +142,36 @@ async function handleFunctionCalls(functionCalls: Array<FunctionCall>, bashToolH
       parts.push({ functionResponse: textEditorToolResultPart });
       continue;
     }
+
+    if (functionCall.name === "fetch_url_context") {
+      let result: string = "";
+      try {
+        const args = functionCall.args as { url: string; query: string };
+        result = await urlContextToolHandler.execute(args);
+      } catch (error) {
+        result = error instanceof Error ? error.message : String(error);
+      }
+      const urlContextToolResultPart = {
+        name: "fetch_url_context",
+        response: { result },
+        id: functionCall.id,
+      };
+      logger.debug({ urlContextToolResultPart }, "Fetch url context tool result");
+      parts.push({ functionResponse: urlContextToolResultPart });
+      continue;
+    }
   }
 
   return { role: "user", turn: { role: "user", parts: parts } } as QueryTurn;
 }
 
 function getActiveTools(jid: string) {
-  const activeDeclarations = [...functionDeclarations];
+  let activeDeclarations = [...functionDeclarations];
   if (jid !== ANDROID_JID) {
     // Exclude remote mcp_ tools for other groups
-    activeDeclarations.splice(2); // Keep only local tools (bash, text_editor)
+    activeDeclarations = activeDeclarations.filter((decl) => !decl.name?.startsWith("mcp_"));
   }
-  return [{ functionDeclarations: activeDeclarations }, { googleSearch: {} }, { urlContext: {} }];
+  return [{ functionDeclarations: activeDeclarations }, { googleSearch: {} }];
 }
 
 async function generateContent(contents: Content[], activeTools: ToolListUnion, groupFolder: string): Promise<GenerateContentResponse> {
@@ -155,8 +181,8 @@ async function generateContent(contents: Content[], activeTools: ToolListUnion, 
     config: {
       systemInstruction: `
         ${GEMINI_PROMPT}
-        - Your dedicated long-term memory namespace directory is located at '${process.cwd()}/groups/${groupFolder}/memories/'. You are authorized to use your file-writing tools to create, read, and organize markdown memory files in this directory to persist critical specifications, architectural designs, and user preferences across sessions.
-        - CRITICAL RULE: Whenever you create, modify, or delete a memory file in this directory, you MUST immediately update the index registry at '${process.cwd()}/groups/${groupFolder}/memories/index.md'. Ensure the index table is kept perfectly up-to-date with the file's name, a concise description of its contents, relevant search tags, and the current update date.`,
+        - Your dedicated long-term memory namespace directory is located at '${path.resolve(process.cwd(), "groups", groupFolder, "memories")}'. You are authorized to use your file-writing tools to create, read, and organize markdown memory files in this directory to persist critical specifications, architectural designs, and user preferences across sessions.
+        - CRITICAL RULE: Whenever you create, modify, or delete a memory file in this directory, you MUST immediately update the index registry at '${path.resolve(process.cwd(), "groups", groupFolder, "memories", "index.md")}'. Ensure the index table is kept perfectly up-to-date with the file's name, a concise description of its contents, relevant search tags, and the current update date.`,
       thinkingConfig: {
         includeThoughts: false,
         thinkingLevel: ThinkingLevel.HIGH,
@@ -194,6 +220,7 @@ async function* runQueryLoop(
   group: Pick<RegisteredGroup, "jid" | "folder">,
   bashToolHandler: BashTool,
   textEditorToolHandler: TextEditorTool,
+  urlContextToolHandler: UrlContextTool,
   mcpManager: McpClientManager | null,
 ): AsyncGenerator<QueryTurn, void> {
   const activeTools = getActiveTools(group.jid);
@@ -221,7 +248,7 @@ async function* runQueryLoop(
       if (toolCallDepth > MAX_TOOL_DEPTH) {
         userQueryTurn = generateMaxToolDepthReachedResponse(response.functionCalls, toolCallDepth);
       } else {
-        userQueryTurn = await handleFunctionCalls(response.functionCalls, bashToolHandler, textEditorToolHandler, mcpManager);
+        userQueryTurn = await handleFunctionCalls(response.functionCalls, bashToolHandler, textEditorToolHandler, urlContextToolHandler, mcpManager);
       }
 
       inputMessages.push(userQueryTurn.turn);
@@ -237,6 +264,7 @@ async function* runQueryLoop(
 export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "jid" | "folder">): AsyncGenerator<QueryTurn, void> {
   const bashToolHandler = BashTool.init(os.homedir());
   const textEditorToolHandler = TextEditorTool.init(os.homedir());
+  const urlContextToolHandler = createUrlContextTool();
   let mcpManager: McpClientManager | null = null;
 
   const inputMessages: Array<Content> = messages.map((m): Content => ({ role: m.role, parts: m.parts }));
@@ -252,7 +280,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
       });
     }
 
-    yield* runQueryLoop(inputMessages, group, bashToolHandler, textEditorToolHandler, mcpManager);
+    yield* runQueryLoop(inputMessages, group, bashToolHandler, textEditorToolHandler, urlContextToolHandler, mcpManager);
   } catch (error) {
     if (error instanceof RefusalError) {
       logger.warn(error.message);

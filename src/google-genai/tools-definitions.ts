@@ -137,4 +137,22 @@ export const functionDeclarations: FunctionDeclaration[] = [
       required: ["command", "path"],
     },
   },
+  {
+    name: "fetch_url_context",
+    description: "Browse a specific URL and extract targeted information based on custom instructions or questions.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        url: {
+          type: Type.STRING,
+          description: "The full web URL to browse.",
+        },
+        query: {
+          type: Type.STRING,
+          description: "Specific questions, focus areas, or instructions on what exact information to extract from the page.",
+        },
+      },
+      required: ["url", "query"],
+    },
+  },
 ];
