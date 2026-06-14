@@ -39,7 +39,6 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
   const handleResponse = async (chatJid: string, history: Array<GeminiHistoryEntry>, response: QueryTurn) => {
     const { role, turn } = response;
-
     if (role === "user") {
       appendToHistory(chatJid, history, { role: turn.role, content: turn.parts });
       return;
@@ -49,30 +48,34 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     let message = "";
     // Clean structural filtering matching your tools-free schemas
     for (const part of turn.parts) {
-      if (part.thought && part.text) {
+      if (part.thought && part.text && part.text.length > 0) {
         await onOutput({ chatJid, message: `Gemini thought:\n${part.text}\n` });
         continue;
       }
-
-      if (part.text) {
-        if (part.text.length > 0) message += part.text;
-      }
-
+      if (part.text && part.text.length > 0) message += part.text;
       parts.push(part);
     }
 
     appendToHistory(chatJid, history, { role: "model", content: parts });
+    if (message.length > 0) await onOutput({ chatJid, message });
+  };
 
-    if (message.length > 0) {
-      await onOutput({ chatJid, message });
+  const handleError = async (chatJid: string, e: unknown) => {
+    const err = e instanceof Error ? e : new Error(String(e));
+    let errorMessage: string;
+    if (err instanceof RefusalError) {
+      errorMessage = "Error: Gemini refused to answer";
+    } else {
+      errorMessage = err.message;
     }
-    await onOutput({ chatJid, message: `Tokens used: ${turn.totalTokenCount}` });
+    await onError({ chatJid, message: errorMessage });
   };
 
   const runCompaction = async (history: Array<GeminiHistoryEntry>, group: Pick<RegisteredGroup, "jid" | "folder">) => {
     const chatJid: string = group.jid;
     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 
+    let rollbackLength = history.length;
     const compactionText = wrapMessage(
       "System",
       `
@@ -83,9 +86,14 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     appendToHistory(chatJid, history, { role: "user", content: [{ text: compactionText }] });
     const partsHistory = history.map((h): MessageParam => ({ role: h.role, parts: h.content }));
     let queryTurn: QueryTurn | null = null;
-    for await (const turn of query(partsHistory, group)) {
-      await handleResponse(chatJid, history, turn);
-      queryTurn = turn;
+    try {
+      for await (const turn of query(partsHistory, group)) {
+        await handleResponse(chatJid, history, turn);
+        queryTurn = turn;
+      }
+    } catch (e) {
+      deps.deleteHistoryFrom(chatJid, rollbackLength);
+      handleError(chatJid, e);
     }
     if (!queryTurn) return;
 
@@ -103,14 +111,15 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       contextContent = fs.readFileSync(contextPath, "utf-8");
     }
 
-    const promptText = contextContent
-      ? `Below are the critical relational and style preferences for our partnership. Read and internalize these FIRST:\n\n${contextContent}\n\n=========================================\n\nContext was compacted. Read the convo summary below:\n\n${summary}`
-      : `Context was compacted. Read the convo summary below:\n\n${summary}`;
-
     await run({
       kind: "text",
       userName: "System",
-      prompt: wrapMessage("System", promptText),
+      prompt: wrapMessage(
+        "System",
+        contextContent
+          ? `Below are the critical relational and style preferences for our partnership. Read and internalize these FIRST:\n\n${contextContent}\n\n=========================================\n\nContext was compacted. Read the convo summary below:\n\n${summary}`
+          : `Context was compacted. Read the convo summary below:\n\n${summary}`,
+      ),
       group: { jid: chatJid, folder: group.folder },
     });
     await run({
@@ -133,48 +142,28 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
     // Process new incoming contents cleanly around your flat Text vs Image block schemas
     const parts: Array<ContentBlockParam> = [];
-    if (input.kind === "image") {
-      parts.push({ inlineData: input.inlineData });
-    }
-    if (input.prompt.length > 0) {
-      parts.push({ text: wrapMessage(input.userName, input.prompt) });
-    }
+    if (input.kind === "image") parts.push({ inlineData: input.inlineData });
+    if (input.prompt.length > 0) parts.push({ text: wrapMessage(input.userName, input.prompt) });
     if (parts.length == 0) return;
 
     appendToHistory(chatJid, history, { role: "user", content: parts });
-
+    const partsHistory = history.map((h): MessageParam => ({ role: h.role, parts: h.content }));
     let queryTurn: QueryTurn | null = null;
     try {
-      const partsHistory = history.map((h): MessageParam => ({ role: h.role, parts: h.content }));
       for await (const response of query(partsHistory, input.group)) {
         await handleResponse(chatJid, history, response);
         queryTurn = response;
       }
     } catch (e) {
-      const err = e instanceof Error ? e : new Error(String(e));
-      let errorMessage: string;
-
-      if (err instanceof RefusalError) {
-        deps.deleteHistoryFrom(chatJid, rollbackLength);
-        errorMessage = "Error: Gemini refused to answer";
-      } else {
-        deps.deleteHistoryFrom(chatJid, rollbackLength);
-        errorMessage = err.message;
-      }
-
-      await onError({ chatJid, message: errorMessage });
+      deps.deleteHistoryFrom(chatJid, rollbackLength);
+      handleError(chatJid, e);
     }
+
+    if (!(queryTurn && queryTurn.role === "model")) return;
 
     rollbackLength = history.length;
-    try {
-      if (queryTurn && queryTurn.role === "model" && queryTurn.turn.totalTokenCount >= 150_000) {
-        await runCompaction(history, input.group);
-      }
-    } catch (e) {
-      const err = e instanceof Error ? e : new Error(String(e));
-      deps.deleteHistoryFrom(chatJid, rollbackLength);
-      await onError({ chatJid, message: `Compaction failed: ${err.message}` });
-    }
+    await onOutput({ chatJid, message: `Ctx: ${queryTurn.turn.totalTokenCount}` });
+    if (queryTurn.turn.totalTokenCount >= 150_000) await runCompaction(history, input.group);
   };
 
   return {
