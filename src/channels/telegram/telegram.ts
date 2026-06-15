@@ -6,7 +6,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import { TELEGRAM_BOT_TOKEN } from "../../core/utils/config.js";
 import { logger } from "../../core/utils/logger.js";
 import type { Channel, ChannelOpts } from "../types.js";
-import { markdownToTelegramHTML } from "./telegram-html-converter.js";
+import { toTelegramHTML } from "./telegram-html-converter.js";
 
 export interface TelegramChannelOpts extends ChannelOpts {
   type: "telegram";
@@ -160,7 +160,7 @@ async function downloadTelegramFileAsBase64(api: Api, fileId: string): Promise<s
 }
 
 async function sendTelegramMessage(api: { sendMessage: Api["sendMessage"] }, chatId: string | number, text: string, options: { message_thread_id?: number } = {}): Promise<void> {
-  const formatted = markdownToTelegramHTML(text);
+  const formatted = toTelegramHTML(text);
   try {
     await api.sendMessage(chatId, formatted, { ...options, parse_mode: "HTML" });
   } catch (err) {

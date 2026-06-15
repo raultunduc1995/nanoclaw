@@ -5,7 +5,7 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-export function markdownToTelegramHTML(input: string): string {
+export function toTelegramHTML(input: string): string {
   if (!input) return input;
 
   const placeholders: string[] = [];
@@ -26,6 +26,10 @@ export function markdownToTelegramHTML(input: string): string {
 
   text = text.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_, label, url) => {
     return stash(`<a href="${escapeHtml(url)}">${escapeHtml(label)}</a>`);
+  });
+
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_, math) => {
+    return stash(`<pre>${escapeHtml(math.trim())}</pre>`);
   });
 
   text = escapeHtml(text);
