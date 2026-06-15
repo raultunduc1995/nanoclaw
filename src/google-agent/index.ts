@@ -71,82 +71,18 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     await onError({ chatJid, message: errorMessage });
   };
 
-  const runCompaction = async (history: Array<GeminiHistoryEntry>, group: Pick<RegisteredGroup, "jid" | "folder">) => {
-    const chatJid: string = group.jid;
-    logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
-
-    let rollbackLength = history.length;
-    const compactionText = wrapMessage(
-      "System",
-      `
-        Summarize the entire conversation and send it back to me.
-        Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
-        Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
-    );
-    appendToHistory(chatJid, history, { role: "user", content: [{ text: compactionText }] });
-    const partsHistory = history.map((h): MessageParam => ({ role: h.role, parts: h.content }));
-    let queryTurn: QueryTurn | null = null;
-    try {
-      for await (const turn of query(partsHistory, group)) {
-        await handleResponse(chatJid, history, turn);
-        queryTurn = turn;
-      }
-    } catch (e) {
-      deps.deleteHistoryFrom(chatJid, rollbackLength);
-      handleError(chatJid, e);
-    }
-    if (!queryTurn) return;
-
-    deps.clearHistory(chatJid);
-
-    let summary: string = "";
-    for (const part of queryTurn.turn.parts) {
-      if (part.thought) continue;
-      if (part.text) summary += part.text + "\n\n";
-    }
-
-    let contextContent = "";
-    const contextPath = path.resolve(GROUPS_DIR, group.folder, "memories", "context.md");
-    if (fs.existsSync(contextPath)) {
-      contextContent = fs.readFileSync(contextPath, "utf-8");
-    }
-
-    await run({
-      kind: "text",
-      userName: "System",
-      prompt: wrapMessage(
-        "System",
-        contextContent
-          ? `Below are the critical relational and style preferences for our partnership. Read and internalize these FIRST:\n\n${contextContent}\n\n=========================================\n\nContext was compacted. Read the convo summary below:\n\n${summary}`
-          : `Context was compacted. Read the convo summary below:\n\n${summary}`,
-      ),
-      group: { jid: chatJid, folder: group.folder },
-    });
-    await run({
-      kind: "text",
-      userName: "System",
-      prompt: wrapMessage(
-        "System",
-        `Additionally, use your file-viewing tool to read the memory index file at '${path.resolve(GROUPS_DIR, group.folder, "memories", "index.md")}' to see what permanent specifications and memories are available in this workspace.`,
-      ),
-      group: { jid: chatJid, folder: group.folder },
-    });
-  };
-
-  const run = async (input: GeminiAgentInput): Promise<void> => {
-    const chatJid = input.group.jid;
-    logger.debug({ chatJid, input }, "Received input from the user");
-
-    const history = deps.loadHistory(chatJid);
+  const runInternal = async (history: Array<GeminiHistoryEntry>, input: GeminiAgentInput): Promise<QueryTurn | null> => {
+    const chatJid: string = input.group.jid;
     let rollbackLength = history.length;
 
     // Process new incoming contents cleanly around your flat Text vs Image block schemas
     const parts: Array<ContentBlockParam> = [];
     if (input.kind === "image") parts.push({ inlineData: input.inlineData });
     if (input.prompt.length > 0) parts.push({ text: wrapMessage(input.userName, input.prompt) });
-    if (parts.length == 0) return;
+    if (parts.length == 0) return null;
 
     appendToHistory(chatJid, history, { role: "user", content: parts });
+
     const partsHistory = history.map((h): MessageParam => ({ role: h.role, parts: h.content }));
     let queryTurn: QueryTurn | null = null;
     try {
@@ -159,11 +95,104 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       handleError(chatJid, e);
     }
 
+    return queryTurn;
+  };
+
+  const injectIndexMdAndContextMd = async (group: Pick<RegisteredGroup, "jid" | "folder">) => {
+    const chatJid: string = group.jid;
+    let history = deps.loadHistory(chatJid);
+    if (history.length > 0) return;
+
+    logger.debug({ chatJid }, "Injecting index.md and context.md if available");
+
+    const contextMdPath = path.resolve(GROUPS_DIR, group.folder, "memories", "context.md");
+    if (fs.existsSync(contextMdPath)) {
+      const contextMdContent = fs.readFileSync(contextMdPath, "utf-8");
+      if (contextMdContent) {
+        await runInternal(history, {
+          kind: "text",
+          userName: "System",
+          prompt: wrapMessage(
+            "System",
+            `
+            Below are the critical relational and style preferences for our partnership. Read and internalize these FIRST:
+            
+            ${contextMdContent}`,
+          ),
+          group,
+        });
+      }
+    }
+
+    history = deps.loadHistory(chatJid);
+    const indexMdPath = path.resolve(GROUPS_DIR, group.folder, "memories", "index.md");
+    if (fs.existsSync(indexMdPath)) {
+      const indexMdContent = fs.readFileSync(indexMdPath, "utf-8");
+      if (indexMdContent) {
+        await runInternal(history, {
+          kind: "text",
+          userName: "System",
+          prompt: wrapMessage(
+            "System",
+            `
+            Additionally, I will provide below the memory index file at '${path.resolve(GROUPS_DIR, group.folder, "memories", "index.md")}' to see what permanent specifications and memories are available in this workspace:
+
+            ${indexMdContent}`,
+          ),
+          group,
+        });
+      }
+    }
+  };
+
+  const runCompaction = async (group: Pick<RegisteredGroup, "jid" | "folder">) => {
+    const chatJid: string = group.jid;
+    logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
+
+    let queryTurn: QueryTurn | null = await runInternal(deps.loadHistory(chatJid), {
+      kind: "text",
+      userName: "System",
+      prompt: wrapMessage(
+        "System",
+        `
+        Summarize the entire conversation and send it back to me.
+        Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
+        Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
+      ),
+      group,
+    });
+    if (!queryTurn) return;
+
+    deps.clearHistory(chatJid);
+
+    await injectIndexMdAndContextMd(group);
+
+    let summary: string = "";
+    for (const part of queryTurn.turn.parts) {
+      if (part.thought) continue;
+      if (part.text) summary += part.text + "\n\n";
+    }
+    await runInternal(deps.loadHistory(chatJid), {
+      kind: "text",
+      userName: "System",
+      prompt: wrapMessage("System", `Context was compacted. Read the convo summary below:\n\n${summary}`),
+      group,
+    });
+  };
+
+  const run = async (input: GeminiAgentInput): Promise<void> => {
+    const chatJid = input.group.jid;
+    logger.debug({ chatJid, input }, "Received input from the user");
+
+    await injectIndexMdAndContextMd(input.group);
+
+    const history = deps.loadHistory(chatJid);
+    const queryTurn: QueryTurn | null = await runInternal(history, input);
+
     if (!(queryTurn && queryTurn.role === "model")) return;
 
-    rollbackLength = history.length;
     await onOutput({ chatJid, message: `Ctx: ${queryTurn.turn.totalTokenCount}` });
-    if (queryTurn.turn.totalTokenCount >= 150_000) await runCompaction(history, input.group);
+    if (queryTurn.turn.totalTokenCount >= 150_000) await runCompaction(input.group);
   };
 
   return {

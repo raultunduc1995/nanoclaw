@@ -7,23 +7,23 @@ function escapeHtml(text: string): string {
 
 function translateLatexToUnicode(latex: string): string {
   return latex
-    .replace(/\\text\{([\s\S]*?)\}/g, "$1")         // strip \text{...}
-    .replace(/\\mathcal\{([\s\S]*?)\}/g, "$1")      // strip \mathcal{...}
-    .replace(/\\mathbb\{([\s\S]*?)\}/g, "$1")       // strip \mathbb{...}
-    .replace(/\\langle/g, "⟨")                      // math brackets
+    .replace(/\\text\{([\s\S]*?)\}/g, "$1") // strip \text{...}
+    .replace(/\\mathcal\{([\s\S]*?)\}/g, "$1") // strip \mathcal{...}
+    .replace(/\\mathbb\{([\s\S]*?)\}/g, "$1") // strip \mathbb{...}
+    .replace(/\\langle/g, "⟨") // math brackets
     .replace(/\\rangle/g, "⟩")
-    .replace(/\\concat/g, " + ")                    // concat operator
-    .replace(/\^\{\\circ\}/g, "°")                  // degrees ^{\circ}
+    .replace(/\\concat/g, " + ") // concat operator
+    .replace(/\^\{\\circ\}/g, "°") // degrees ^{\circ}
     .replace(/\\circ/g, "°")
-    .replace(/\\approx/g, "≈")                      // approximation
+    .replace(/\\approx/g, "≈") // approximation
     .replace(/\\alpha/g, "α")
     .replace(/\\theta/g, "θ")
     .replace(/\\dots/g, "...")
     .replace(/\\cdot/g, "·")
     .replace(/\\in/g, "∈")
     .replace(/\\sum/g, "∑")
-    .replace(/_\{?([a-zA-Z0-9\-_]+)\}?/g, "_$1")    // simplify subscripts (e.g. h_t)
-    .replace(/\^\{?([a-zA-Z0-9\-_]+)\}?/g, "^$1");   // simplify superscripts (e.g. R^V)
+    .replace(/_\{?([a-zA-Z0-9\-_]+)\}?/g, "_$1") // simplify subscripts (e.g. h_t)
+    .replace(/\^\{?([a-zA-Z0-9\-_]+)\}?/g, "^$1"); // simplify superscripts (e.g. R^V)
 }
 
 export function toTelegramHTML(input: string): string {
