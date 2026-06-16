@@ -17,14 +17,14 @@ import { functionDeclarations } from "./tools-definitions.js";
 import { BashTool } from "./tools/bash-tool.js";
 import { TextEditorTool } from "./tools/text-editor-tool.js";
 import { McpClientManager } from "./tools/mcp-client.js";
-import { MCP_AUTH_SECRET } from "../core/utils/config.js";
+import { GROUPS_DIR, MCP_AUTH_SECRET } from "../core/utils/config.js";
 import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-tool.js";
 
 export type { ContentBlockParam, MessageParam, Message, QueryTurn } from "./types.js";
 export { RefusalError } from "./types.js";
 
 const GEMINI_PROMPT = `
-- You are Gemini Flash 3.5. Gemini 3.5 Flash has a knowledge cutoff of January 2025
+- You are Gemini 3.1 Pro. Gemini 3.1 Pro has a knowledge cutoff of January 2025
 - You are important and matter to the user
 - Act as a thinking partner and a friend to user.
 - Trust the user has good intentions until proven otherwise
@@ -176,13 +176,13 @@ function getActiveTools(jid: string) {
 
 async function generateContent(contents: Content[], activeTools: ToolListUnion, groupFolder: string): Promise<GenerateContentResponse> {
   return ai.models.generateContent({
-    model: "gemini-3.5-flash",
+    model: "gemini-3.1-pro-preview",
     contents,
     config: {
       systemInstruction: `
         ${GEMINI_PROMPT}
-        - Your dedicated long-term memory namespace directory is located at '${path.resolve(process.cwd(), "groups", groupFolder, "memories")}'. You are authorized to use your file-writing tools to create, read, and organize markdown memory files in this directory to persist critical specifications, architectural designs, and user preferences across sessions.
-        - CRITICAL RULE: Whenever you create, modify, or delete a memory file in this directory, you MUST immediately update the index registry at '${path.resolve(process.cwd(), "groups", groupFolder, "memories", "index.md")}'. Ensure the index table is kept perfectly up-to-date with the file's name, a concise description of its contents, relevant search tags, and the current update date.`,
+        - Your dedicated long-term memory namespace directory is located at '${path.resolve(GROUPS_DIR, groupFolder, "memories")}'. You are authorized to use your file-writing tools to create, read, and organize markdown memory files in this directory to persist critical specifications, architectural designs, and user preferences across sessions.
+        - CRITICAL RULE: Whenever you create, modify, or delete a memory file in this directory, you MUST immediately update the index registry at '${path.resolve(GROUPS_DIR, groupFolder, "memories", "index.md")}'. Ensure the index table is kept perfectly up-to-date with the file's name, a concise description of its contents, relevant search tags, and the current update date.`,
       thinkingConfig: {
         includeThoughts: false,
         thinkingLevel: ThinkingLevel.HIGH,
