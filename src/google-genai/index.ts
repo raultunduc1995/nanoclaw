@@ -274,7 +274,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
       mcpManager = new McpClientManager();
       await mcpManager.connect({
         "work-mac": {
-          url: "http://192.168.1.176:3737/sse",
+          url: process.env.MCP_WORK_MAC_URL || "http://192.168.1.176:3737/sse",
           headers: { "X-Auth": MCP_AUTH_SECRET },
         },
       });

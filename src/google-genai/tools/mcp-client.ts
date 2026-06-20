@@ -98,8 +98,6 @@ export class McpClientManager {
       const originalName = conn.toolNameMap.get(prefixedName);
       if (originalName === undefined) continue;
 
-      logger.debug({ serverName: conn.serverName, tool: originalName, input }, "Calling MCP tool");
-
       const result = await conn.client.callTool({ name: originalName, arguments: input });
 
       const content = result.content as Array<{ type: string; text?: string }>;

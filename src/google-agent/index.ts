@@ -149,7 +149,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const chatJid: string = group.jid;
     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 
-    let queryTurn: QueryTurn | null = await runInternal(deps.loadHistory(chatJid), {
+    const queryTurn: QueryTurn | null = await runInternal(deps.loadHistory(chatJid), {
       kind: "text",
       userName: "System",
       prompt: wrapMessage(
@@ -192,7 +192,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     if (!(queryTurn && queryTurn.role === "model")) return;
 
     await onOutput({ chatJid, message: `Ctx: ${queryTurn.turn.totalTokenCount}` });
-    if (queryTurn.turn.totalTokenCount >= 150_000) await runCompaction(input.group);
+    if (queryTurn.turn.totalTokenCount >= 180_000) await runCompaction(input.group);
   };
 
   return {
