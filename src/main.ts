@@ -1,7 +1,7 @@
 import { logger } from "./core/utils/index.js";
-import { createChannelsRegistry, type ChannelsRegistry, type TelegramChannelOpts } from "./channels/index.js";
+import { createChannelsRegistry, type ChannelsRegistry, type TelegramChannelOpts, type InboundMessage } from "./channels/index.js";
 import { initLocalDatabase } from "./core/db/index.js";
-import { createGroupsRepository, createHistoryRepository, type GroupsRepository } from "./core/repositories/index.js";
+import { createGroupsRepository, createHistoryRepository, type GroupsRepository, type RegisteredGroup } from "./core/repositories/index.js";
 // import { startVoiceServer } from "./voice/index.js";
 import { createClaudeAgent, type ClaudeAgent, type ClaudeAgentInput, type ClaudeHistoryEntry } from "./agent/index.js";
 import { ImageMimeType } from "./core/common/index.js";
@@ -11,6 +11,9 @@ let groupsRepo: GroupsRepository;
 let channelsRegistry: ChannelsRegistry;
 let geminiAgent: GeminiAgent;
 let claudeAgent: ClaudeAgent;
+
+const messagePipe = new Map<string, Array<{ message: InboundMessage; group: Pick<RegisteredGroup, "jid" | "folder"> }>>();
+const activeRuns = new Map<string, boolean>();
 
 const initMain = () => {
   channelsRegistry = createChannelsRegistry();
@@ -49,6 +52,16 @@ const initMain = () => {
     appendHistory: historyRepo.append,
     deleteHistoryFrom: historyRepo.deleteFrom,
     clearHistory: historyRepo.clear,
+    pullExtraInputs: (jid: string) => {
+      const inputs = messagePipe.get(jid) || [];
+      messagePipe.set(jid, []);
+      return inputs.map(
+        ({ message, group }): GeminiAgentInput =>
+          message.kind === "text"
+            ? { kind: "text", userName: message.userName, prompt: message.prompt, group }
+            : { kind: "image", userName: message.userName, prompt: message.prompt, inlineData: { data: message.imageBase64, mimeType: message.imageMimeType as ImageMimeType }, group },
+      );
+    },
   });
 
   claudeAgent = createClaudeAgent({
@@ -84,52 +97,6 @@ const initMain = () => {
   });
 };
 
-const runAgent = async (input: { kind: "text" | "image"; userName: string; prompt: string; jid: string; group: any; imageBase64?: string; imageMimeType?: ImageMimeType }) => {
-  if (input.jid === "tg:-5274248775" || input.jid === "tg:-5186159689") {
-    let agentInput!: GeminiAgentInput;
-    if (input.kind === "text") {
-      agentInput = {
-        kind: "text",
-        userName: input.userName,
-        prompt: input.prompt,
-        group: input.group,
-      };
-    } else if (input.kind === "image") {
-      agentInput = {
-        kind: "image",
-        userName: input.userName,
-        prompt: input.prompt,
-        inlineData: {
-          data: input.imageBase64!,
-          mimeType: input.imageMimeType!,
-        },
-        group: input.group,
-      };
-    }
-    await geminiAgent.run(agentInput);
-  } else {
-    let agentInput!: ClaudeAgentInput;
-    if (input.kind === "text") {
-      agentInput = {
-        kind: "text",
-        userName: input.userName,
-        prompt: input.prompt,
-        group: input.group,
-      };
-    } else if (input.kind === "image") {
-      agentInput = {
-        kind: "image",
-        userName: input.userName,
-        prompt: input.prompt,
-        imageBase64: input.imageBase64!,
-        imageMimeType: input.imageMimeType!,
-        group: input.group,
-      };
-    }
-    await claudeAgent.run(agentInput);
-  }
-};
-
 const registerCleanupHandlers = () => {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Shutdown signal received");
@@ -141,48 +108,52 @@ const registerCleanupHandlers = () => {
   process.on("SIGINT", () => shutdown("SIGINT"));
 };
 
+const runAgentLoop = async (chatJid: string) => {
+  if (activeRuns.get(chatJid)) return;
+  activeRuns.set(chatJid, true);
+
+  try {
+    while (true) {
+      const inputs = messagePipe.get(chatJid) || [];
+      if (inputs.length === 0) break;
+      const { message: inputMsg, group: inputGroup } = inputs[0];
+      messagePipe.set(chatJid, inputs.slice(1));
+
+      const useGemini = chatJid === "tg:-5274248775" || chatJid === "tg:-5186159689";
+
+      if (useGemini) {
+        const initialInput: GeminiAgentInput =
+          inputMsg.kind === "text"
+            ? { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group: inputGroup }
+            : { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.imageBase64, mimeType: inputMsg.imageMimeType as ImageMimeType }, group: inputGroup };
+        await geminiAgent.run(initialInput);
+      } else {
+        const agentInput: ClaudeAgentInput =
+          inputMsg.kind === "text"
+            ? { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group: inputGroup }
+            : { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, imageBase64: inputMsg.imageBase64, imageMimeType: inputMsg.imageMimeType as ImageMimeType, group: inputGroup };
+        await claudeAgent.run(agentInput);
+      }
+    }
+  } catch (err) {
+    logger.error({ chatJid, err }, "Error running agent loop");
+  } finally {
+    activeRuns.delete(chatJid);
+  }
+};
+
 const registerChannels = async () => {
-  const groupChains = new Map<string, Promise<void>>();
   const telegramOps: TelegramChannelOpts = {
     type: "telegram",
     onInboundMessage: (message, group) => {
       const chatJid = message.chatJid;
       channelsRegistry.findChannel(chatJid)?.setTyping(chatJid);
 
-      const previousRun = groupChains.get(chatJid) || Promise.resolve();
+      const inputs = messagePipe.get(chatJid) || [];
+      inputs.push({ message, group });
+      messagePipe.set(chatJid, inputs);
 
-      const currentRun = previousRun
-        .then(async () => {
-          if (message.kind === "text") {
-            await runAgent({
-              kind: "text",
-              userName: message.userName,
-              prompt: message.prompt,
-              jid: chatJid,
-              group,
-            });
-          } else if (message.kind === "image") {
-            await runAgent({
-              kind: "image",
-              userName: message.userName,
-              prompt: message.prompt,
-              imageBase64: message.imageBase64,
-              imageMimeType: message.imageMimeType as ImageMimeType,
-              jid: chatJid,
-              group,
-            });
-          }
-        })
-        .catch((err) => {
-          logger.error({ chatJid, err }, "Error running agent in promise chain");
-        })
-        .finally(() => {
-          if (groupChains.get(chatJid) === currentRun) {
-            groupChains.delete(chatJid);
-          }
-        });
-
-      groupChains.set(chatJid, currentRun);
+      runAgentLoop(chatJid);
     },
     getRegisteredGroups: () => groupsRepo.getAllAsRecord(),
     registerNewGroup: (jid, group) => groupsRepo.register(jid, group),

@@ -9,7 +9,7 @@ import { FinishReason, HarmBlockThreshold, HarmCategory, GenerateContentResponse
 import type { Content, FunctionCall, Part, ToolListUnion } from "@google/genai";
 
 import { logger } from "../core/utils/index.js";
-import type { MessageParam, QueryTurn, Message } from "./types.js";
+import type { MessageParam, QueryTurn, Message, ContentBlockParam } from "./types.js";
 import { RefusalError } from "./types.js";
 import type { RegisteredGroup } from "../core/repositories/index.js";
 import ai from "./genai-client.js";
@@ -46,7 +46,7 @@ const MAX_TOOL_DEPTH = 30;
  * Throws a RefusalError if the model encountered policy/safety blocks.
  */
 function mapGeminiToModelTurn(response: GenerateContentResponse): QueryTurn {
-  const candidate = response.candidates!![0];
+  const candidate = response.candidates![0];
 
   // Intercept refusals natively before doing any mapping
   const finishReason = candidate.finishReason || FinishReason.OTHER;
@@ -222,6 +222,7 @@ async function* runQueryLoop(
   textEditorToolHandler: TextEditorTool,
   urlContextToolHandler: UrlContextTool,
   mcpManager: McpClientManager | null,
+  onBeforeGenerate: () => Promise<Array<ContentBlockParam>>,
 ): AsyncGenerator<QueryTurn, void> {
   const activeTools = getActiveTools(group.jid);
   let continueLoop = true;
@@ -229,6 +230,16 @@ async function* runQueryLoop(
   let response!: GenerateContentResponse;
 
   while (continueLoop) {
+    const extraParts = await onBeforeGenerate();
+    if (extraParts.length > 0) {
+      const lastMsg = inputMessages[inputMessages.length - 1];
+      if (lastMsg && lastMsg.role === "user") {
+        lastMsg.parts = (lastMsg.parts || []).concat(extraParts);
+      } else {
+        inputMessages.push({ role: "user", parts: extraParts });
+      }
+    }
+
     response = await generateContent(inputMessages, activeTools, group.folder);
 
     logger.debug({ response }, "Raw response from Gemini API");
@@ -261,7 +272,11 @@ async function* runQueryLoop(
   }
 }
 
-export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "jid" | "folder">): AsyncGenerator<QueryTurn, void> {
+export async function* query(
+  messages: Array<MessageParam>,
+  group: Pick<RegisteredGroup, "jid" | "folder">,
+  onBeforeGenerate: () => Promise<Array<ContentBlockParam>>,
+): AsyncGenerator<QueryTurn, void> {
   const bashToolHandler = BashTool.init(os.homedir());
   const textEditorToolHandler = TextEditorTool.init(os.homedir());
   const urlContextToolHandler = createUrlContextTool();
@@ -280,7 +295,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
       });
     }
 
-    yield* runQueryLoop(inputMessages, group, bashToolHandler, textEditorToolHandler, urlContextToolHandler, mcpManager);
+    yield* runQueryLoop(inputMessages, group, bashToolHandler, textEditorToolHandler, urlContextToolHandler, mcpManager, onBeforeGenerate);
   } catch (error) {
     if (error instanceof RefusalError) {
       logger.warn(error.message);

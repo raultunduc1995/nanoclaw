@@ -27,6 +27,7 @@ interface GeminiAgentDeps {
   appendHistory: (jid: string, seq: number, entry: GeminiHistoryEntry) => void;
   deleteHistoryFrom: (jid: string, fromSeq: number) => void;
   clearHistory: (jid: string) => void;
+  pullExtraInputs: (jid: string) => Array<GeminiAgentInput>;
 }
 
 export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
@@ -73,20 +74,30 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
   const runInternal = async (history: Array<GeminiHistoryEntry>, input: GeminiAgentInput): Promise<QueryTurn | null> => {
     const chatJid: string = input.group.jid;
-    let rollbackLength = history.length;
+    const rollbackLength = history.length;
 
-    // Process new incoming contents cleanly around your flat Text vs Image block schemas
     const parts: Array<ContentBlockParam> = [];
     if (input.kind === "image") parts.push({ inlineData: input.inlineData });
     if (input.prompt.length > 0) parts.push({ text: wrapMessage(input.userName, input.prompt) });
-    if (parts.length == 0) return null;
+    if (parts.length === 0) return null;
 
     appendToHistory(chatJid, history, { role: "user", content: parts });
 
     const partsHistory = history.map((h): MessageParam => ({ role: h.role, parts: h.content }));
+
+    const onBeforeGenerate = async (): Promise<Array<ContentBlockParam>> => {
+      const extraInputs = deps.pullExtraInputs(chatJid);
+      const extraParts: Array<ContentBlockParam> = [];
+      for (const input of extraInputs) {
+        if (input.kind === "image" && input.inlineData) extraParts.push({ inlineData: input.inlineData });
+        if (input.prompt.length > 0) extraParts.push({ text: wrapMessage(input.userName, input.prompt) });
+      }
+      return extraParts;
+    };
+
     let queryTurn: QueryTurn | null = null;
     try {
-      for await (const response of query(partsHistory, input.group)) {
+      for await (const response of query(partsHistory, input.group, onBeforeGenerate)) {
         await handleResponse(chatJid, history, response);
         queryTurn = response;
       }
@@ -112,13 +123,9 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
         await runInternal(history, {
           kind: "text",
           userName: "System",
-          prompt: wrapMessage(
-            "System",
-            `
-            Below are the critical relational and style preferences for our partnership. Read and internalize these FIRST:
+          prompt: `Below are the critical relational and style preferences for our partnership. Read and internalize these FIRST:
             
             ${contextMdContent}`,
-          ),
           group,
         });
       }
@@ -132,13 +139,9 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
         await runInternal(history, {
           kind: "text",
           userName: "System",
-          prompt: wrapMessage(
-            "System",
-            `
-            Additionally, I will provide below the memory index file at '${path.resolve(GROUPS_DIR, group.folder, "memories", "index.md")}' to see what permanent specifications and memories are available in this workspace:
+          prompt: `Additionally, I will provide below the memory index file at '${path.resolve(GROUPS_DIR, group.folder, "memories", "index.md")}' to see what permanent specifications and memories are available in this workspace:
 
             ${indexMdContent}`,
-          ),
           group,
         });
       }
@@ -152,13 +155,9 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const queryTurn: QueryTurn | null = await runInternal(deps.loadHistory(chatJid), {
       kind: "text",
       userName: "System",
-      prompt: wrapMessage(
-        "System",
-        `
-        Summarize the entire conversation and send it back to me.
+      prompt: `Summarize the entire conversation and send it back to me.
         Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
         Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
-      ),
       group,
     });
     if (!queryTurn) return;
@@ -175,7 +174,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     await runInternal(deps.loadHistory(chatJid), {
       kind: "text",
       userName: "System",
-      prompt: wrapMessage("System", `Context was compacted. Read the convo summary below:\n\n${summary}`),
+      prompt: `Context was compacted. Read the convo summary below:\n\n${summary}`,
       group,
     });
   };
@@ -192,7 +191,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     if (!(queryTurn && queryTurn.role === "model")) return;
 
     await onOutput({ chatJid, message: `Ctx: ${queryTurn.turn.totalTokenCount}` });
-    if (queryTurn.turn.totalTokenCount >= 180_000) await runCompaction(input.group);
+    if (queryTurn.turn.totalTokenCount >= 400_000) await runCompaction(input.group);
   };
 
   return {
