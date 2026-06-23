@@ -6,6 +6,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import { TELEGRAM_BOT_TOKEN } from "../../core/utils/config.js";
 import { logger } from "../../core/utils/logger.js";
 import type { Channel, ChannelOpts } from "../types.js";
+import type { VideoMimeType } from "../../core/common/index.js";
 import { toTelegramHTML } from "./telegram-html-converter.js";
 
 export interface TelegramChannelOpts extends ChannelOpts {
@@ -77,6 +78,35 @@ export class TelegramChannel implements Channel {
       }
 
       this.opts.onInboundMessage({ kind: "image", id: msgId, chatJid, userName, prompt: content, imageMimeType: "image/jpeg", imageBase64 }, group);
+    });
+
+    this.bot.on("message:video", async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.getRegisteredGroups()[chatJid];
+      if (!group) {
+        logger.warn({ chatJid }, "Message from unregistered Telegram chat");
+        return;
+      }
+
+      const userName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || "Unknown";
+      const msgId = ctx.message.message_id.toString();
+      const content = ctx.message.caption || "";
+
+      const video = ctx.message.video;
+
+      // Check size (~15MB limit for inline base64 -> ~20MB base64)
+      if (video.file_size && video.file_size > 15 * 1024 * 1024) {
+        ctx.reply("Video too large for inline buffer (must be under ~15MB).", { reply_parameters: { message_id: ctx.message.message_id } });
+        return;
+      }
+
+      const videoBase64 = await downloadTelegramFileAsBase64(ctx.api, video.file_id);
+      if (!videoBase64) {
+        logger.error({ chatJid, fileId: video.file_id }, "Failed to download Telegram video");
+        return;
+      }
+
+      this.opts.onInboundMessage({ kind: "video", id: msgId, chatJid, userName, prompt: content, videoMimeType: (video.mime_type as VideoMimeType) || "video/mp4", videoBase64 }, group);
     });
 
     // Handle errors gracefully

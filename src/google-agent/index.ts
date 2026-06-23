@@ -77,7 +77,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const rollbackLength = history.length;
 
     const parts: Array<ContentBlockParam> = [];
-    if (input.kind === "image") parts.push({ inlineData: input.inlineData });
+    if (input.kind === "image" || input.kind === "video") parts.push({ inlineData: input.inlineData });
     if (input.prompt.length > 0) parts.push({ text: wrapMessage(input.userName, input.prompt) });
     if (parts.length === 0) return null;
 
@@ -89,7 +89,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       const extraInputs = deps.pullExtraInputs(chatJid);
       const extraParts: Array<ContentBlockParam> = [];
       for (const input of extraInputs) {
-        if (input.kind === "image" && input.inlineData) extraParts.push({ inlineData: input.inlineData });
+        if ((input.kind === "image" || input.kind === "video") && input.inlineData) extraParts.push({ inlineData: input.inlineData });
         if (input.prompt.length > 0) extraParts.push({ text: wrapMessage(input.userName, input.prompt) });
       }
       return extraParts;
@@ -191,7 +191,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     if (!(queryTurn && queryTurn.role === "model")) return;
 
     await onOutput({ chatJid, message: `Ctx: ${queryTurn.turn.totalTokenCount}` });
-    if (queryTurn.turn.totalTokenCount >= 400_000) await runCompaction(input.group);
+    if (queryTurn.turn.totalTokenCount >= 300_000) await runCompaction(input.group);
   };
 
   return {

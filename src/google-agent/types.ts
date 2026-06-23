@@ -1,7 +1,7 @@
 // google-agent/types.ts
 
 import type { ContentBlockParam } from "../google-genai/index.js";
-import type { ImageMimeType } from "../core/common/index.js";
+import type { ImageMimeType, VideoMimeType } from "../core/common/index.js";
 import { RegisteredGroup } from "../core/repositories/groups-repository.js";
 
 interface GeminiAgentInputBase {
@@ -16,8 +16,12 @@ interface GeminiAgentImageInput extends GeminiAgentInputBase {
   kind: "image";
   inlineData: { mimeType: ImageMimeType; data: string };
 }
+interface GeminiAgentVideoInput extends GeminiAgentInputBase {
+  kind: "video";
+  inlineData: { mimeType: VideoMimeType; data: string };
+}
 
-export type GeminiAgentInput = GeminiAgentTextInput | GeminiAgentImageInput;
+export type GeminiAgentInput = GeminiAgentTextInput | GeminiAgentImageInput | GeminiAgentVideoInput;
 
 export type GeminiHistoryEntry = {
   role: "user" | "model";

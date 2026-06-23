@@ -4,7 +4,6 @@ import { initLocalDatabase } from "./core/db/index.js";
 import { createGroupsRepository, createHistoryRepository, type GroupsRepository, type RegisteredGroup } from "./core/repositories/index.js";
 // import { startVoiceServer } from "./voice/index.js";
 import { createClaudeAgent, type ClaudeAgent, type ClaudeAgentInput, type ClaudeHistoryEntry } from "./agent/index.js";
-import { ImageMimeType } from "./core/common/index.js";
 import { createGeminiAgent, type GeminiAgent, type GeminiAgentInput, type GeminiHistoryEntry } from "./google-agent/index.js";
 
 let groupsRepo: GroupsRepository;
@@ -59,7 +58,9 @@ const initMain = () => {
         ({ message, group }): GeminiAgentInput =>
           message.kind === "text"
             ? { kind: "text", userName: message.userName, prompt: message.prompt, group }
-            : { kind: "image", userName: message.userName, prompt: message.prompt, inlineData: { data: message.imageBase64, mimeType: message.imageMimeType as ImageMimeType }, group },
+            : message.kind === "image"
+              ? { kind: "image", userName: message.userName, prompt: message.prompt, inlineData: { data: message.imageBase64, mimeType: message.imageMimeType }, group }
+              : { kind: "video", userName: message.userName, prompt: message.prompt, inlineData: { data: message.videoBase64, mimeType: message.videoMimeType }, group },
       );
     },
   });
@@ -125,13 +126,17 @@ const runAgentLoop = async (chatJid: string) => {
         const initialInput: GeminiAgentInput =
           inputMsg.kind === "text"
             ? { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group: inputGroup }
-            : { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.imageBase64, mimeType: inputMsg.imageMimeType as ImageMimeType }, group: inputGroup };
+            : inputMsg.kind === "image"
+              ? { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.imageBase64, mimeType: inputMsg.imageMimeType }, group: inputGroup }
+              : { kind: "video", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.videoBase64, mimeType: inputMsg.videoMimeType }, group: inputGroup };
         await geminiAgent.run(initialInput);
       } else {
         const agentInput: ClaudeAgentInput =
           inputMsg.kind === "text"
             ? { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group: inputGroup }
-            : { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, imageBase64: inputMsg.imageBase64, imageMimeType: inputMsg.imageMimeType as ImageMimeType, group: inputGroup };
+            : inputMsg.kind === "image"
+              ? { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, imageBase64: inputMsg.imageBase64, imageMimeType: inputMsg.imageMimeType, group: inputGroup }
+              : { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt + "\n\n[SYSTEM: A video was attached but Claude cannot process videos. Ignore it.]", group: inputGroup };
         await claudeAgent.run(agentInput);
       }
     }

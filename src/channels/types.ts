@@ -1,4 +1,4 @@
-import { ImageMimeType } from "../core/common/index.js";
+import { ImageMimeType, VideoMimeType } from "../core/common/index.js";
 import { RegisteredGroup } from "../core/repositories/index.js";
 
 interface MessageBase {
@@ -18,7 +18,13 @@ interface ImageMessage extends MessageBase {
   imageMimeType: ImageMimeType;
 }
 
-export type InboundMessage = TextMessage | ImageMessage;
+interface VideoMessage extends MessageBase {
+  kind: "video";
+  videoBase64: string;
+  videoMimeType: VideoMimeType;
+}
+
+export type InboundMessage = TextMessage | ImageMessage | VideoMessage;
 
 export interface ChannelOpts {
   type: "telegram";
