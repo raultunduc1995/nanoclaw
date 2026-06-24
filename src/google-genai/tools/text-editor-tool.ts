@@ -18,10 +18,10 @@ interface ViewCommand {
   view_range?: [number, number];
 }
 
-interface StrReplaceCommand {
-  command: "str_replace";
+interface ReplaceLinesCommand {
+  command: "replace_lines";
   path: string;
-  old_str: string;
+  replace_range: [number, number];
   new_str: string;
 }
 
@@ -38,7 +38,7 @@ interface InsertCommand {
   insert_text: string;
 }
 
-type EditorCommand = ViewCommand | StrReplaceCommand | CreateCommand | InsertCommand;
+type EditorCommand = ViewCommand | ReplaceLinesCommand | CreateCommand | InsertCommand;
 
 // --- Utilities ---
 
@@ -47,9 +47,10 @@ function parseCommand(input: Record<string, unknown>): EditorCommand {
     case "view":
       return { command: "view", path: input.path as string, view_range: input.view_range ? (input.view_range as [number, number]) : undefined };
 
-    case "str_replace":
-      if (input.old_str === undefined) throw new Error("Error: old_str is required for str_replace command.");
-      return { command: "str_replace", path: input.path as string, old_str: input.old_str as string, new_str: (input.new_str as string) ?? "" };
+    case "replace_lines":
+      if (input.replace_range === undefined) throw new Error("Error: replace_range is required for replace_lines command.");
+      if (input.new_str === undefined) throw new Error("Error: new_str is required for replace_lines command.");
+      return { command: "replace_lines", path: input.path as string, replace_range: input.replace_range as [number, number], new_str: input.new_str as string };
 
     case "create":
       if (input.file_text === undefined) throw new Error("Error: file_text is required for create command.");
@@ -61,7 +62,7 @@ function parseCommand(input: Record<string, unknown>): EditorCommand {
       return { command: "insert", path: input.path as string, insert_line: input.insert_line as number, insert_text: input.insert_text as string };
 
     default:
-      throw new Error(`Error: Unknown command '${input.command}'. Valid commands: view, str_replace, create, insert.`);
+      throw new Error(`Error: Unknown command '${input.command}'. Valid commands: view, replace_lines, create, insert.`);
   }
 }
 
@@ -120,8 +121,8 @@ export class TextEditorTool {
     switch (cmd.command) {
       case "view":
         return this.view(cmd);
-      case "str_replace":
-        return this.strReplace(cmd);
+      case "replace_lines":
+        return this.replaceLines(cmd);
       case "create":
         return this.create(cmd);
       case "insert":
@@ -218,7 +219,7 @@ export class TextEditorTool {
     return `${header}\n${lines.join("\n")}`;
   }
 
-  private async strReplace(cmd: StrReplaceCommand): Promise<string> {
+  private async replaceLines(cmd: ReplaceLinesCommand): Promise<string> {
     const fullPath = this.resolvePath(cmd.path);
 
     let content: string;
@@ -231,43 +232,23 @@ export class TextEditorTool {
       throw err;
     }
 
-    // Count occurrences using indexOf for multi-line match support
-    const matchingLines: Array<number> = [];
-    let matchIndex = content.indexOf(cmd.old_str);
-    const firstMatchIndex = matchIndex;
-    while (matchIndex !== -1) {
-      matchingLines.push(content.slice(0, matchIndex).split("\n").length);
-      matchIndex = content.indexOf(cmd.old_str, matchIndex + 1);
+    const lines = content.split("\n");
+    const [start, end] = cmd.replace_range;
+
+    if (start < 1 || start > lines.length || end < 1 || end > lines.length || start > end) {
+      throw new Error(`Error: Invalid replace_range [${start}, ${end}]. File has ${lines.length} lines.`);
     }
 
-    if (matchingLines.length === 0) {
-      throw new Error(`Error: No match found for replacement. Please check your text and try again.`);
-    }
-    if (matchingLines.length > 1) {
-      const lines = content.split("\n");
-      const snippets = matchingLines.map((lineNum) => {
-        const idx = lineNum - 1;
-        const start = Math.max(0, idx - 1);
-        const end = Math.min(lines.length, idx + 2);
-        return `Line ${lineNum}: ...${lines.slice(start, end).join("\n").trim()}...`;
-      });
-      throw new Error(`Error: Found ${matchingLines.length} matches. Please provide more context to make a unique match. Matches at:\n${snippets.join("\n")}`);
-    }
+    // Convert 1-based to 0-based
+    const startIndex = start - 1;
+    const deleteCount = end - start + 1;
 
-    const newContent = content.slice(0, firstMatchIndex) + cmd.new_str + content.slice(firstMatchIndex + cmd.old_str.length);
-    await atomicWriteFile(fullPath, newContent);
+    const replacementLines = cmd.new_str.split("\n");
+    lines.splice(startIndex, deleteCount, ...replacementLines);
 
-    // Return snippet showing the change with context
-    const changedLineIndex = content.slice(0, firstMatchIndex).split("\n").length - 1;
-    const newLines = newContent.split("\n");
-    const contextStart = Math.max(0, changedLineIndex - 2);
-    const contextEnd = Math.min(newLines.length, changedLineIndex + 3);
-    const snippet = newLines.slice(contextStart, contextEnd).map((line, i) => {
-      const lineNum = contextStart + i + 1;
-      return `${String(lineNum).padStart(LINE_NUMBER_WIDTH, " ")}\t${line}`;
-    });
+    await atomicWriteFile(fullPath, lines.join("\n"));
 
-    return `Successfully replaced text at exactly one location.\n${snippet.join("\n")}`;
+    return `Successfully replaced lines ${start} to ${end}.`;
   }
 
   private async create(cmd: CreateCommand): Promise<string> {

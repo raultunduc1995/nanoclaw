@@ -191,7 +191,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     if (!(queryTurn && queryTurn.role === "model")) return;
 
     await onOutput({ chatJid, message: `Ctx: ${queryTurn.turn.totalTokenCount}` });
-    if (queryTurn.turn.totalTokenCount >= 200_000) await runCompaction(input.group);
+    if (queryTurn.turn.totalTokenCount >= 180_000) await runCompaction(input.group);
   };
 
   return {
