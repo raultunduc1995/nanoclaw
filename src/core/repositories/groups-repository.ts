@@ -71,13 +71,31 @@ const toGroupRow = (jid: string, group: RegisteredGroup): GroupRow => ({
 
 function resolveGroupFolderPath(folder: string): string {
   assertValidGroupFolder(folder);
-
   const groupPath = path.resolve(GROUPS_DIR, folder);
   ensureWithinBase(GROUPS_DIR, groupPath);
-
   return groupPath;
 }
 
 function createGroupDirectory(groupDir: string): void {
-  fs.mkdirSync(path.join(groupDir, "memories"), { recursive: true });
+  const memoriesDir = path.join(groupDir, "memories");
+  fs.mkdirSync(memoriesDir, { recursive: true });
+
+  const contextMdPath = path.join(memoriesDir, "context.md");
+  if (!fs.existsSync(contextMdPath)) {
+    const defaultContextContent = ["# Relational Context", "*Local preferences and specifications for this chat group.*", ""].join("\n");
+    fs.writeFileSync(contextMdPath, defaultContextContent, "utf-8");
+  }
+
+  const indexMdPath = path.join(memoriesDir, "index.md");
+  if (!fs.existsSync(indexMdPath)) {
+    const defaultIndexContent = [
+      "# Memory Vault Index",
+      "*An indexed registry of permanent memory files, specifications, and project assets.*",
+      "",
+      "| File Name | Description | Tags | Last Updated |",
+      "| :--- | :--- | :--- | :--- |",
+      "",
+    ].join("\n");
+    fs.writeFileSync(indexMdPath, defaultIndexContent, "utf-8");
+  }
 }

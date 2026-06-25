@@ -120,7 +120,7 @@ const runAgentLoop = async (chatJid: string) => {
       const { message: inputMsg, group: inputGroup } = inputs[0];
       messagePipe.set(chatJid, inputs.slice(1));
 
-      const useGemini = chatJid === "tg:-5274248775" || chatJid === "tg:-5186159689";
+      const useGemini = chatJid === "tg:-5274248775" || chatJid === "tg:-5186159689" || chatJid === "tg:-5596082179";
 
       if (useGemini) {
         const initialInput: GeminiAgentInput =

@@ -35,7 +35,7 @@ const GEMINI_PROMPT = `
 - Stop when the thought ends.
 - SPECIAL INSTRUCTION: think silently only if strictly needed. If the request is a simple status check, conversation routing, or single-turn formatting, skip reasoning steps entirely.`;
 
-const ANDROID_JID = "tg:-5186159689";
+const ANDROID_JIDS = ["tg:-5186159689", "tg:-5596082179"];
 const MAX_TOOL_DEPTH = 30;
 
 /**
@@ -164,7 +164,7 @@ async function handleFunctionCalls(
 
 function getActiveTools(jid: string) {
   let activeDeclarations = [...functionDeclarations];
-  if (jid !== ANDROID_JID) {
+  if (!ANDROID_JIDS.includes(jid)) {
     // Exclude remote mcp_ tools for other groups
     activeDeclarations = activeDeclarations.filter((decl) => !decl.name?.startsWith("mcp_"));
   }
@@ -173,7 +173,7 @@ function getActiveTools(jid: string) {
 
 async function generateContent(contents: Content[], activeTools: ToolListUnion, groupFolder: string): Promise<GenerateContentResponse> {
   return ai.models.generateContent({
-    model: "gemini-3.1-pro-preview",
+    model: "gemini-3.1-pro-preview-customtools",
     contents,
     config: {
       systemInstruction: `
@@ -282,7 +282,7 @@ export async function* query(
   const inputMessages: Array<Content> = messages.map((m): Content => ({ role: m.role, parts: m.parts }));
 
   try {
-    if (group.jid === ANDROID_JID) {
+    if (ANDROID_JIDS.includes(group.jid)) {
       mcpManager = new McpClientManager();
       await mcpManager.connect({
         "work-mac": {

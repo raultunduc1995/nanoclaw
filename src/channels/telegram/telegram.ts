@@ -91,18 +91,25 @@ export class TelegramChannel implements Channel {
       const userName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || "Unknown";
       const msgId = ctx.message.message_id.toString();
       const content = ctx.message.caption || "";
-
       const video = ctx.message.video;
 
-      // Check size (~15MB limit for inline base64 -> ~20MB base64)
-      if (video.file_size && video.file_size > 15 * 1024 * 1024) {
+      const fileSize = video.file_size || 0;
+      if (fileSize > 15 * 1024 * 1024) {
         ctx.reply("Video too large for inline buffer (must be under ~15MB).", { reply_parameters: { message_id: ctx.message.message_id } });
         return;
       }
 
-      const videoBase64 = await downloadTelegramFileAsBase64(ctx.api, video.file_id);
+      const mimeType = video.mime_type || "video/mp4";
+      const validVideoMimeTypes = ["video/mp4", "video/mpeg", "video/quicktime", "video/webm"];
+      if (!validVideoMimeTypes.includes(mimeType)) {
+        logger.warn({ chatJid, mimeType }, "Unsupported video mime type received from Telegram");
+        return;
+      }
+
+      const fileId = video.file_id;
+      const videoBase64 = await downloadTelegramFileAsBase64(ctx.api, fileId);
       if (!videoBase64) {
-        logger.error({ chatJid, fileId: video.file_id }, "Failed to download Telegram video");
+        logger.error({ chatJid, fileId }, "Failed to download Telegram video");
         return;
       }
 
