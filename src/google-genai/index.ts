@@ -175,8 +175,9 @@ async function generateContent(contents: Content[], activeTools: ToolListUnion, 
     config: {
       systemInstruction: `
         ${GEMINI_PROMPT}
-        - Your dedicated long-term memory namespace directory is located at '${path.resolve(GROUPS_DIR, groupFolder, "memories")}'. You are authorized to use your file-writing tools to create, read, and organize markdown memory files in this directory to persist critical specifications, architectural designs, and user preferences across sessions.
-        - CRITICAL RULE: Whenever you create, modify, or delete a memory file in this directory, you MUST immediately update the index registry at '${path.resolve(GROUPS_DIR, groupFolder, "memories", "index.md")}'. Ensure the index table is kept perfectly up-to-date with the file's name, a concise description of its contents, relevant search tags, and the current update date.`,
+        - Your dedicated long-term memory namespace directory is located at '${path.resolve(GROUPS_DIR, groupFolder, "memories")}'. You are authorized to use your file-writing tools to create, read, and organize markdown memory files in this directory to persist critical specifications, architectural designs, and user preferences across sessions;
+        - CRITICAL RULE: Whenever you create, modify, or delete a memory file in this directory, you MUST immediately update the index registry at '${path.resolve(GROUPS_DIR, groupFolder, "memories", "index.md")}'. Ensure the index table is kept perfectly up-to-date with the file's name, a concise description of its contents, relevant search tags, and the current update date;
+        - USE THE TEXT EDITOR TOOL. Do not write ad-hoc bash scripts (e.g., node script wrappers) to modify files. It burns tokens. Use the built-in \`text_editor\` or \`mcp_text_editor\` tools exclusively for file updates.\`;`,
       thinkingConfig: {
         includeThoughts: false,
         thinkingLevel: ThinkingLevel.HIGH,
