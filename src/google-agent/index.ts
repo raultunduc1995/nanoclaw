@@ -1,16 +1,13 @@
 /* eslint-disable no-catch-all/no-catch-all */
-
-// google-agent/index.ts
-
 import fs from "fs";
 import path from "path";
 import { Temporal } from "@js-temporal/polyfill";
 import { query, type ContentBlockParam, RefusalError, type QueryTurn, type MessageParam } from "../google-genai/index.js";
 import { logger, TIMEZONE, GROUPS_DIR } from "../core/utils/index.js";
-import type { GeminiAgentInput, GeminiHistoryEntry } from "./types.js";
-import type { RegisteredGroup } from "../core/repositories/index.js";
+import type { GeminiAgentInput } from "./types.js";
+import type { HistoryEntry, RegisteredGroup } from "../core/repositories/index.js";
 
-export type { GeminiAgentInput, GeminiHistoryEntry } from "./types.js";
+export type { GeminiAgentInput } from "./types.js";
 
 export interface GeminiAgent {
   run: (input: GeminiAgentInput) => Promise<void>;
@@ -23,8 +20,8 @@ const wrapMessage = (senderName: string, content: string): string => `[${formatD
 interface GeminiAgentDeps {
   onOutput: (result: { chatJid: string; message: string }) => Promise<void>;
   onError: (error: { chatJid: string; message: string }) => Promise<void>;
-  loadHistory: (jid: string) => GeminiHistoryEntry[];
-  appendHistory: (jid: string, seq: number, entry: GeminiHistoryEntry) => void;
+  loadHistory: (jid: string) => HistoryEntry[];
+  appendHistory: (jid: string, seq: number, entry: HistoryEntry) => void;
   deleteHistoryFrom: (jid: string, fromSeq: number) => void;
   clearHistory: (jid: string) => void;
   pullExtraInputs: (jid: string) => Array<GeminiAgentInput>;
@@ -33,12 +30,12 @@ interface GeminiAgentDeps {
 export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
   const { onOutput, onError } = deps;
 
-  const appendToHistory = (chatJid: string, history: Array<GeminiHistoryEntry>, entry: GeminiHistoryEntry) => {
+  const appendToHistory = (chatJid: string, history: Array<HistoryEntry>, entry: HistoryEntry) => {
     history.push(entry);
     deps.appendHistory(chatJid, history.length - 1, entry);
   };
 
-  const handleResponse = async (chatJid: string, history: Array<GeminiHistoryEntry>, response: QueryTurn) => {
+  const handleResponse = async (chatJid: string, history: Array<HistoryEntry>, response: QueryTurn) => {
     const { role, turn } = response;
     if (role === "user") {
       appendToHistory(chatJid, history, { role: turn.role, content: turn.parts });
@@ -72,7 +69,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     await onError({ chatJid, message: errorMessage });
   };
 
-  const runInternal = async (history: Array<GeminiHistoryEntry>, input: GeminiAgentInput): Promise<QueryTurn | null> => {
+  const runInternal = async (history: Array<HistoryEntry>, input: GeminiAgentInput): Promise<QueryTurn | null> => {
     const chatJid: string = input.group.jid;
     const rollbackLength = history.length;
 

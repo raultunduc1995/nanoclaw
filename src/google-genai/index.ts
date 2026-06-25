@@ -1,7 +1,4 @@
 /* eslint-disable no-catch-all/no-catch-all */
-
-// google-genai/index.ts
-
 import os from "os";
 import path from "path";
 

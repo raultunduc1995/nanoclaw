@@ -1,5 +1,3 @@
-// google-genai/types.ts
-
 import { type Part } from "@google/genai";
 
 // Core content blocks

@@ -1,19 +1,16 @@
 import { logger } from "./core/utils/index.js";
 import { createChannelsRegistry, type ChannelsRegistry, type TelegramChannelOpts, type InboundMessage } from "./channels/index.js";
 import { initLocalDatabase } from "./core/db/index.js";
-import { createGroupsRepository, createHistoryRepository, type GroupsRepository, type RegisteredGroup } from "./core/repositories/index.js";
+import { createGroupsRepository, createHistoryRepository, type HistoryEntry, type GroupsRepository, type RegisteredGroup } from "./core/repositories/index.js";
 // import { startVoiceServer } from "./voice/index.js";
-import { createClaudeAgent, type ClaudeAgent, type ClaudeAgentInput, type ClaudeHistoryEntry } from "./agent/index.js";
-import { createGeminiAgent, type GeminiAgent, type GeminiAgentInput, type GeminiHistoryEntry } from "./google-agent/index.js";
+import { createGeminiAgent, type GeminiAgent, type GeminiAgentInput } from "./google-agent/index.js";
 
 let groupsRepo: GroupsRepository;
 let channelsRegistry: ChannelsRegistry;
 let geminiAgent: GeminiAgent;
-let claudeAgent: ClaudeAgent;
 
 const messagePipe = new Map<string, Array<{ message: InboundMessage; group: Pick<RegisteredGroup, "jid" | "folder"> }>>();
 const activeRuns = new Map<string, boolean>();
-
 const initMain = () => {
   channelsRegistry = createChannelsRegistry();
 
@@ -34,8 +31,8 @@ const initMain = () => {
         await channel.sendMessage(chatJid, `Error: ${message}`);
       }
     },
-    loadHistory: function (jid: string): GeminiHistoryEntry[] {
-      return historyRepo.load(jid).map((e): GeminiHistoryEntry => {
+    loadHistory: function (jid: string): HistoryEntry[] {
+      return historyRepo.load(jid).map((e): HistoryEntry => {
         if (e.role === "model") {
           return {
             role: "model",
@@ -45,7 +42,7 @@ const initMain = () => {
         return {
           role: "user",
           content: e.content,
-        } as GeminiHistoryEntry;
+        };
       });
     },
     appendHistory: historyRepo.append,
@@ -64,40 +61,7 @@ const initMain = () => {
       );
     },
   });
-
-  claudeAgent = createClaudeAgent({
-    onOutput: async ({ chatJid, message }) => {
-      const channel = channelsRegistry.findChannel(chatJid);
-      if (channel) {
-        await channel.sendMessage(chatJid, message);
-      }
-    },
-    onError: async ({ chatJid, message }) => {
-      const channel = channelsRegistry.findChannel(chatJid);
-      if (channel) {
-        await channel.sendMessage(chatJid, `Error: ${message}`);
-      }
-    },
-    loadHistory: function (jid: string): ClaudeHistoryEntry[] {
-      return historyRepo.load(jid).map((e): ClaudeHistoryEntry => {
-        if (e.role === "assistant") {
-          return {
-            role: "assistant",
-            content: e.content,
-          };
-        }
-        return {
-          role: "user",
-          content: e.content,
-        } as ClaudeHistoryEntry;
-      });
-    },
-    appendHistory: historyRepo.append,
-    deleteHistoryFrom: historyRepo.deleteFrom,
-    clearHistory: historyRepo.clear,
-  });
 };
-
 const registerCleanupHandlers = () => {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Shutdown signal received");
@@ -120,25 +84,13 @@ const runAgentLoop = async (chatJid: string) => {
       const { message: inputMsg, group: inputGroup } = inputs[0];
       messagePipe.set(chatJid, inputs.slice(1));
 
-      const useGemini = chatJid === "tg:-5274248775" || chatJid === "tg:-5186159689" || chatJid === "tg:-5596082179";
-
-      if (useGemini) {
-        const initialInput: GeminiAgentInput =
-          inputMsg.kind === "text"
-            ? { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group: inputGroup }
-            : inputMsg.kind === "image"
-              ? { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.imageBase64, mimeType: inputMsg.imageMimeType }, group: inputGroup }
-              : { kind: "video", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.videoBase64, mimeType: inputMsg.videoMimeType }, group: inputGroup };
-        await geminiAgent.run(initialInput);
-      } else {
-        const agentInput: ClaudeAgentInput =
-          inputMsg.kind === "text"
-            ? { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group: inputGroup }
-            : inputMsg.kind === "image"
-              ? { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, imageBase64: inputMsg.imageBase64, imageMimeType: inputMsg.imageMimeType, group: inputGroup }
-              : { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt + "\n\n[SYSTEM: A video was attached but Claude cannot process videos. Ignore it.]", group: inputGroup };
-        await claudeAgent.run(agentInput);
-      }
+      const initialInput: GeminiAgentInput =
+        inputMsg.kind === "text"
+          ? { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group: inputGroup }
+          : inputMsg.kind === "image"
+            ? { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.imageBase64, mimeType: inputMsg.imageMimeType }, group: inputGroup }
+            : { kind: "video", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.videoBase64, mimeType: inputMsg.videoMimeType }, group: inputGroup };
+      await geminiAgent.run(initialInput);
     }
   } catch (err) {
     logger.error({ chatJid, err }, "Error running agent loop");
