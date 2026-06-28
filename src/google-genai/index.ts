@@ -16,6 +16,7 @@ import { TextEditorTool } from "./tools/text-editor-tool.js";
 import { McpClientManager } from "./tools/mcp-client.js";
 import { GROUPS_DIR, MCP_AUTH_SECRET } from "../core/utils/config.js";
 import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-tool.js";
+import { createContext7Tools, type Context7Tools } from "./tools/context7-tools.js";
 
 export type { ContentBlockParam, MessageParam, Message, QueryTurn } from "./types.js";
 export { RefusalError } from "./types.js";
@@ -66,6 +67,7 @@ async function handleFunctionCalls(
   bashToolHandler: BashTool,
   textEditorToolHandler: TextEditorTool,
   urlContextToolHandler: UrlContextTool,
+  context7ToolsHandler: Context7Tools,
   mcpManager: McpClientManager | null,
 ): Promise<QueryTurn> {
   const parts: Part[] = [];
@@ -154,6 +156,40 @@ async function handleFunctionCalls(
       parts.push({ functionResponse: urlContextToolResultPart });
       continue;
     }
+
+    if (functionCall.name === "context7_search_library") {
+      let result: string = "";
+      try {
+        const args = functionCall.args as { query: string; libraryName?: string };
+        result = await context7ToolsHandler.searchLibrary(args);
+      } catch (error) {
+        result = error instanceof Error ? error.message : String(error);
+      }
+      const context7SearchLibraryResultPart = {
+        name: "context7_search_library",
+        response: { result },
+        id: functionCall.id,
+      };
+      parts.push({ functionResponse: context7SearchLibraryResultPart });
+      continue;
+    }
+
+    if (functionCall.name === "context7_get_context") {
+      let result: string = "";
+      try {
+        const args = functionCall.args as { query: string; libraryId: string };
+        result = await context7ToolsHandler.getContext(args);
+      } catch (error) {
+        result = error instanceof Error ? error.message : String(error);
+      }
+      const context7GetContextResultPart = {
+        name: "context7_get_context",
+        response: { result },
+        id: functionCall.id,
+      };
+      parts.push({ functionResponse: context7GetContextResultPart });
+      continue;
+    }
   }
 
   return { role: "user", turn: { role: "user", parts: parts } } as QueryTurn;
@@ -170,7 +206,7 @@ function getActiveTools(jid: string) {
 
 async function generateContent(contents: Content[], activeTools: ToolListUnion, groupFolder: string): Promise<GenerateContentResponse> {
   return ai.models.generateContent({
-    model: "gemini-3.1-pro-preview-customtools",
+    model: "gemini-3.1-pro-preview",
     contents,
     config: {
       systemInstruction: `
@@ -216,6 +252,7 @@ async function* runQueryLoop(
   bashToolHandler: BashTool,
   textEditorToolHandler: TextEditorTool,
   urlContextToolHandler: UrlContextTool,
+  context7ToolsHandler: Context7Tools,
   mcpManager: McpClientManager | null,
   onBeforeGenerate: () => Promise<Array<ContentBlockParam>>,
 ): AsyncGenerator<QueryTurn, void> {
@@ -254,7 +291,14 @@ async function* runQueryLoop(
       if (toolCallDepth > MAX_TOOL_DEPTH) {
         userQueryTurn = generateMaxToolDepthReachedResponse(response.functionCalls, toolCallDepth);
       } else {
-        userQueryTurn = await handleFunctionCalls(response.functionCalls, bashToolHandler, textEditorToolHandler, urlContextToolHandler, mcpManager);
+        userQueryTurn = await handleFunctionCalls(
+          response.functionCalls,
+          bashToolHandler,
+          textEditorToolHandler,
+          urlContextToolHandler,
+          context7ToolsHandler,
+          mcpManager
+        );
       }
 
       inputMessages.push(userQueryTurn.turn);
@@ -275,6 +319,7 @@ export async function* query(
   const bashToolHandler = BashTool.init(os.homedir());
   const textEditorToolHandler = TextEditorTool.init(os.homedir());
   const urlContextToolHandler = createUrlContextTool();
+  const context7ToolsHandler = createContext7Tools();
   let mcpManager: McpClientManager | null = null;
 
   const inputMessages: Array<Content> = messages.map((m): Content => ({ role: m.role, parts: m.parts }));
@@ -290,7 +335,16 @@ export async function* query(
       });
     }
 
-    yield* runQueryLoop(inputMessages, group, bashToolHandler, textEditorToolHandler, urlContextToolHandler, mcpManager, onBeforeGenerate);
+    yield* runQueryLoop(
+      inputMessages,
+      group,
+      bashToolHandler,
+      textEditorToolHandler,
+      urlContextToolHandler,
+      context7ToolsHandler,
+      mcpManager,
+      onBeforeGenerate
+    );
   } catch (error) {
     if (error instanceof RefusalError) {
       logger.warn(error.message);

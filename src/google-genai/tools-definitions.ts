@@ -165,4 +165,40 @@ export const functionDeclarations: FunctionDeclaration[] = [
       required: ["url", "query"],
     },
   },
+  {
+    name: "context7_search_library",
+    description: "Search the Context7 registry for official API documentation library IDs based on a query or framework.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        query: {
+          type: Type.STRING,
+          description: "The search query (e.g., 'I need to build a UI with components').",
+        },
+        libraryName: {
+          type: Type.STRING,
+          description: "Optional filter for the library name. Should be a single lowercase keyword (e.g., 'react', 'android', 'nextjs').",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "context7_get_context",
+    description: "Retrieve fresh, official API documentation and code examples from a specific Context7 library.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        query: {
+          type: Type.STRING,
+          description: "The exact problem or task to query docs for (e.g., 'How do I use hooks?').",
+        },
+        libraryId: {
+          type: Type.STRING,
+          description: "The exact library ID resolved from context7_search_library (e.g., '/facebook/react').",
+        },
+      },
+      required: ["query", "libraryId"],
+    },
+  },
 ];
