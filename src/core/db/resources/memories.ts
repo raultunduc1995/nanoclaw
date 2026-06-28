@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import { type Database } from "@tursodatabase/database";
 
 export interface MemoryRecord {
   id: number;
@@ -13,52 +13,39 @@ export interface MemorySearchResult extends MemoryRecord {
 }
 
 export interface MemoriesLocalResource {
-  insert: (jid: string, content: string, tags: string[], embedding: number[]) => number;
-  searchFull: (jid: string, embedding: number[], limit?: number) => MemorySearchResult[];
-  delete: (jid: string, id: number) => boolean;
+  insert: (jid: string, content: string, tags: string[], embedding: number[]) => Promise<number>;
+  searchFull: (jid: string, embedding: number[], limit?: number) => Promise<MemorySearchResult[]>;
+  delete: (jid: string, id: number) => Promise<boolean>;
 }
 
-export const createMemoriesLocalResource = (db: Database.Database): MemoriesLocalResource => {
-  const insertStmt = db.prepare("INSERT INTO memories (jid, content, tags) VALUES (?, ?, ?)");
-  const insertVecStmt = db.prepare("INSERT INTO vec_memories (memory_id, jid, embedding) VALUES (?, ?, ?)");
-
-  const deleteMemStmt = db.prepare("DELETE FROM memories WHERE id = ? AND jid = ?");
-  const deleteVecStmt = db.prepare("DELETE FROM vec_memories WHERE memory_id = ?");
-
-  const searchFullStmt = db.prepare(`
-    SELECT m.id, m.jid, m.content, m.tags, m.created_at as createdAt, v.distance
-    FROM vec_memories v
-    JOIN memories m ON m.id = v.memory_id
-    WHERE v.embedding MATCH ? AND k = ? AND v.jid = ?
-    ORDER BY v.distance
-  `);
-
-  const deleteTransaction = db.transaction((jid: string, id: number) => {
-    const info = deleteMemStmt.run(id, jid);
-    if (info.changes > 0) {
-      deleteVecStmt.run(BigInt(id));
-      return true;
-    }
-    return false;
-  });
-
-  const insertTransaction = db.transaction((jid: string, content: string, tags: string, embeddingBuffer: Float32Array) => {
-    const info = insertStmt.run(jid, content, tags);
-    const memoryId = info.lastInsertRowid;
-    insertVecStmt.run(BigInt(memoryId), jid, embeddingBuffer);
-    return memoryId as number;
-  });
-
+export const createMemoriesLocalResource = (db: Database): MemoriesLocalResource => {
   return {
-    insert: (jid, content, tags, embedding) => {
+    insert: async (jid, content, tags, embedding) => {
       const tagsJson = JSON.stringify(tags);
-      const embeddingBuffer = new Float32Array(embedding);
-      return insertTransaction(jid, content, tagsJson, embeddingBuffer);
+      const embeddingStr = JSON.stringify(embedding);
+
+      const insertStmt = await db.prepare("INSERT INTO memories (jid, content, tags, embedding) VALUES (?, ?, ?, vector(?))");
+      const info = await insertStmt.run(jid, content, tagsJson, embeddingStr);
+      return info.lastInsertRowid;
     },
-    delete: (jid, id) => deleteTransaction(jid, id),
-    searchFull: (jid, embedding, limit = 10) => {
-      const embeddingBuffer = new Float32Array(embedding);
-      const results = searchFullStmt.all(embeddingBuffer, limit, jid) as Array<{
+    delete: async (jid, id) => {
+      const deleteStmt = await db.prepare("DELETE FROM memories WHERE id = ? AND jid = ?");
+      const info = await deleteStmt.run(id, jid);
+      return info.changes > 0;
+    },
+    searchFull: async (jid, embedding, limit = 10) => {
+      const embeddingStr = JSON.stringify(embedding);
+      const searchStmt = await db.prepare(`
+        SELECT 
+          id, jid, content, tags, created_at as createdAt, 
+          vector_distance_cos(embedding, vector(?)) as distance
+        FROM memories
+        WHERE jid = ?
+        ORDER BY distance ASC
+        LIMIT ?
+      `);
+
+      const results = (await searchStmt.all(embeddingStr, jid, limit)) as Array<{
         id: number;
         jid: string;
         content: string;

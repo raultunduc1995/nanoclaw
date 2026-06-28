@@ -1,6 +1,4 @@
-import type Database from "better-sqlite3";
-
-// --- Types and interfaces ---
+import { type Database } from "@tursodatabase/database";
 
 export interface GroupRow {
   jid: string;
@@ -9,20 +7,25 @@ export interface GroupRow {
   added_at: string;
 }
 
-// --- Local resource interface and implementation ---
-
 export interface GroupsLocalResource {
-  get: (jid: string) => GroupRow | undefined;
-  set: (jid: string, group: GroupRow) => void;
-  getAll: () => GroupRow[];
+  get: (jid: string) => Promise<GroupRow | undefined>;
+  set: (jid: string, group: GroupRow) => Promise<void>;
+  getAll: () => Promise<GroupRow[]>;
 }
 
-export const createGroupsLocalResource = (db: Database.Database): GroupsLocalResource => ({
-  get: (jid) => db.prepare("SELECT * FROM registered_groups WHERE jid = ?").get(jid) as GroupRow | undefined,
-
-  set: (jid, group) => {
-    db.prepare(`INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at) VALUES (?, ?, ?, ?)`).run(jid, group.name, group.folder, group.added_at);
+export const createGroupsLocalResource = (db: Database): GroupsLocalResource => ({
+  get: async (jid) => {
+    const stmt = await db.prepare("SELECT * FROM registered_groups WHERE jid = ?");
+    return (await stmt.get(jid)) as GroupRow | undefined;
   },
 
-  getAll: () => db.prepare("SELECT * FROM registered_groups").all() as GroupRow[],
+  set: async (jid, group) => {
+    const stmt = await db.prepare("INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at) VALUES (?, ?, ?, ?)");
+    await stmt.run(jid, group.name, group.folder, group.added_at);
+  },
+
+  getAll: async () => {
+    const stmt = await db.prepare("SELECT * FROM registered_groups");
+    return (await stmt.all()) as GroupRow[];
+  },
 });

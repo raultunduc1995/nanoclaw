@@ -17,7 +17,7 @@ import { McpClientManager } from "./tools/mcp-client.js";
 import { GROUPS_DIR, MCP_AUTH_SECRET } from "../core/utils/config.js";
 import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-tool.js";
 import { createContext7Tools, type Context7Tools } from "./tools/context7-tools.js";
-import { createMemoryTools, type MemoryTools } from "./tools/memory-tools.js";
+import { createMemoryTool, type MemoryTools } from "./tools/memory-tool.js";
 export type { ContentBlockParam, MessageParam, Message, QueryTurn } from "./types.js";
 export { RefusalError } from "./types.js";
 
@@ -359,7 +359,7 @@ export async function* query(
   const textEditorToolHandler = TextEditorTool.init(os.homedir());
   const urlContextToolHandler = createUrlContextTool();
   const context7ToolsHandler = createContext7Tools();
-  const memoryToolsHandler = createMemoryTools(memoriesRepository, group.jid);
+  const memoryToolsHandler = createMemoryTool(memoriesRepository, group.jid);
   let mcpManager: McpClientManager | null = null;
 
   const inputMessages: Array<Content> = messages.map((m): Content => ({ role: m.role, parts: m.parts }));

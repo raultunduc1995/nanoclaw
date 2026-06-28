@@ -253,5 +253,5 @@ export const functionDeclarations: FunctionDeclaration[] = [
       },
       required: ["id"],
     },
-  }
+  },
 ];

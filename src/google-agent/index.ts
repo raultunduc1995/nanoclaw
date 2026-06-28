@@ -21,25 +21,25 @@ interface GeminiAgentDeps {
   memoriesRepository: MemoriesRepository;
   onOutput: (result: { chatJid: string; message: string }) => Promise<void>;
   onError: (error: { chatJid: string; message: string }) => Promise<void>;
-  loadHistory: (jid: string) => HistoryEntry[];
-  appendHistory: (jid: string, seq: number, entry: HistoryEntry) => void;
-  deleteHistoryFrom: (jid: string, fromSeq: number) => void;
-  clearHistory: (jid: string) => void;
+  loadHistory: (jid: string) => Promise<HistoryEntry[]>;
+  appendHistory: (jid: string, seq: number, entry: HistoryEntry) => Promise<void>;
+  deleteHistoryFrom: (jid: string, fromSeq: number) => Promise<void>;
+  clearHistory: (jid: string) => Promise<void>;
   pullExtraInputs: (jid: string) => Array<GeminiAgentInput>;
 }
 
 export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
   const { onOutput, onError } = deps;
 
-  const appendToHistory = (chatJid: string, history: Array<HistoryEntry>, entry: HistoryEntry) => {
+  const appendToHistory = async (chatJid: string, history: Array<HistoryEntry>, entry: HistoryEntry) => {
     history.push(entry);
-    deps.appendHistory(chatJid, history.length - 1, entry);
+    await deps.appendHistory(chatJid, history.length - 1, entry);
   };
 
   const handleResponse = async (chatJid: string, history: Array<HistoryEntry>, response: QueryTurn) => {
     const { role, turn } = response;
     if (role === "user") {
-      appendToHistory(chatJid, history, { role: turn.role, content: turn.parts });
+      await appendToHistory(chatJid, history, { role: turn.role, content: turn.parts });
       return;
     }
 
@@ -55,7 +55,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       parts.push(part);
     }
 
-    appendToHistory(chatJid, history, { role: "model", content: parts });
+    await appendToHistory(chatJid, history, { role: "model", content: parts });
     if (message.length > 0) await onOutput({ chatJid, message });
   };
 
@@ -109,7 +109,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
   const injectContextMd = async (group: Pick<RegisteredGroup, "jid" | "folder">) => {
     const chatJid: string = group.jid;
-    const history = deps.loadHistory(chatJid);
+    const history = await deps.loadHistory(chatJid);
     if (history.length > 0) return;
 
     logger.debug({ chatJid }, "Injecting context.md if available");
@@ -134,7 +134,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const chatJid: string = group.jid;
     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 
-    const queryTurn: QueryTurn | null = await runInternal(deps.loadHistory(chatJid), {
+    const queryTurn: QueryTurn | null = await runInternal((await deps.loadHistory(chatJid)), {
       kind: "text",
       userName: "System",
       prompt: `Summarize the entire conversation and send it back to me.
@@ -144,7 +144,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     });
     if (!queryTurn) return;
 
-    deps.clearHistory(chatJid);
+    await deps.clearHistory(chatJid);
 
     await injectContextMd(group);
 
@@ -153,7 +153,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       if (part.thought) continue;
       if (part.text) summary += part.text + "\n\n";
     }
-    await runInternal(deps.loadHistory(chatJid), {
+    await runInternal((await deps.loadHistory(chatJid)), {
       kind: "text",
       userName: "System",
       prompt: `Context was compacted. Read the convo summary below:\n\n${summary}`,
@@ -167,7 +167,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
     await injectContextMd(input.group);
 
-    const history = deps.loadHistory(chatJid);
+    const history = await deps.loadHistory(chatJid);
     const queryTurn: QueryTurn | null = await runInternal(history, input);
 
     if (!(queryTurn && queryTurn.role === "model")) return;

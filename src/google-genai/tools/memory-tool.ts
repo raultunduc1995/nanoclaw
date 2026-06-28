@@ -6,7 +6,7 @@ export interface MemoryTools {
   deleteMemory: (args: { id: number }) => Promise<string>;
 }
 
-export const createMemoryTools = (repo: MemoriesRepository, jid: string): MemoryTools => {
+export const createMemoryTool = (repo: MemoriesRepository, jid: string): MemoryTools => {
   return {
     saveMemory: async ({ content, tags }) => {
       try {
@@ -40,7 +40,7 @@ export const createMemoryTools = (repo: MemoriesRepository, jid: string): Memory
         if (results.length === 0) {
           return "No relevant memories found for that query.";
         }
-        return JSON.stringify(results.map(r => ({ id: r.id, content: r.content, tags: r.tags, distance: r.distance })));
+        return JSON.stringify(results.map((r) => ({ id: r.id, content: r.content, tags: r.tags, distance: r.distance })));
       } catch (error) {
         if (error instanceof Error) {
           console.error("Memory Tool Error:", error.message);
@@ -49,6 +49,6 @@ export const createMemoryTools = (repo: MemoriesRepository, jid: string): Memory
         console.error("Unexpected error:", error);
         return `Error querying memory: ${String(error)}`;
       }
-    }
+    },
   };
 };

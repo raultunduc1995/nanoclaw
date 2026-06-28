@@ -13,16 +13,18 @@ export const createMemoriesRepository = (resource: MemoriesLocalResource): Memor
       model: "gemini-embedding-2",
       contents: content,
     });
-    
+
     const embedding = response.embeddings?.[0]?.values;
     if (!embedding) {
       throw new Error("Failed to generate embedding for memory");
     }
 
-    return resource.insert(jid, content, tags, embedding);
+    return await resource.insert(jid, content, tags, embedding);
   },
 
-  deleteMemory: async (jid, id) => resource.delete(jid, id),
+  deleteMemory: async (jid, id) => {
+    return await resource.delete(jid, id);
+  },
 
   queryMemories: async (jid, query, limit = 10) => {
     const response = await ai.models.embedContent({
@@ -35,6 +37,6 @@ export const createMemoriesRepository = (resource: MemoriesLocalResource): Memor
       throw new Error("Failed to generate embedding for search query");
     }
 
-    return resource.searchFull(jid, embedding, limit);
+    return await resource.searchFull(jid, embedding, limit);
   },
 });

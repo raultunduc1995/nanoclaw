@@ -7,15 +7,16 @@ export interface HistoryEntry {
 }
 
 export interface HistoryRepository {
-  load: (jid: string) => HistoryEntry[];
-  append: (jid: string, seq: number, entry: HistoryEntry) => void;
-  deleteFrom: (jid: string, fromSeq: number) => void;
-  clear: (jid: string) => void;
+  load: (jid: string) => Promise<HistoryEntry[]>;
+  append: (jid: string, seq: number, entry: HistoryEntry) => Promise<void>;
+  deleteFrom: (jid: string, fromSeq: number) => Promise<void>;
+  clear: (jid: string) => Promise<void>;
 }
 
 export const createHistoryRepository = (resource: HistoryLocalResource): HistoryRepository => ({
-  load: (jid) =>
-    resource.getAll(jid).map((row: HistoryRow) => {
+  load: async (jid) => {
+    const rows = await resource.getAll(jid);
+    return rows.map((row: HistoryRow) => {
       if (row.role === "model") {
         return {
           role: "model",
@@ -26,17 +27,18 @@ export const createHistoryRepository = (resource: HistoryLocalResource): History
         role: "user",
         content: JSON.parse(row.content),
       } as HistoryEntry;
-    }),
-
-  append: (jid, seq, entry) => {
-    resource.append(jid, seq, entry.role, JSON.stringify(entry.content));
+    });
   },
 
-  deleteFrom: (jid, fromSeq) => {
-    resource.deleteFrom(jid, fromSeq);
+  append: async (jid, seq, entry) => {
+    await resource.append(jid, seq, entry.role, JSON.stringify(entry.content));
   },
 
-  clear: (jid) => {
-    resource.clear(jid);
+  deleteFrom: async (jid, fromSeq) => {
+    await resource.deleteFrom(jid, fromSeq);
+  },
+
+  clear: async (jid) => {
+    await resource.clear(jid);
   },
 });

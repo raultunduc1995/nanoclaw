@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import { type Database } from "@tursodatabase/database";
 
 export interface HistoryRow {
   jid: string;
@@ -8,24 +8,30 @@ export interface HistoryRow {
 }
 
 export interface HistoryLocalResource {
-  append: (jid: string, seq: number, role: string, content: string) => void;
-  getAll: (jid: string) => HistoryRow[];
-  deleteFrom: (jid: string, fromSeq: number) => void;
-  clear: (jid: string) => void;
+  append: (jid: string, seq: number, role: string, content: string) => Promise<void>;
+  getAll: (jid: string) => Promise<HistoryRow[]>;
+  deleteFrom: (jid: string, fromSeq: number) => Promise<void>;
+  clear: (jid: string) => Promise<void>;
 }
 
-export const createHistoryLocalResource = (db: Database.Database): HistoryLocalResource => ({
-  append: (jid, seq, role, content) => {
-    db.prepare("INSERT INTO history (jid, seq, role, content) VALUES (?, ?, ?, ?)").run(jid, seq, role, content);
+export const createHistoryLocalResource = (db: Database): HistoryLocalResource => ({
+  append: async (jid, seq, role, content) => {
+    const stmt = await db.prepare("INSERT INTO history (jid, seq, role, content) VALUES (?, ?, ?, ?)");
+    await stmt.run(jid, seq, role, content);
   },
 
-  getAll: (jid) => db.prepare("SELECT * FROM history WHERE jid = ? ORDER BY seq").all(jid) as HistoryRow[],
-
-  deleteFrom: (jid, fromSeq) => {
-    db.prepare("DELETE FROM history WHERE jid = ? AND seq >= ?").run(jid, fromSeq);
+  getAll: async (jid) => {
+    const stmt = await db.prepare("SELECT * FROM history WHERE jid = ? ORDER BY seq");
+    return await stmt.all(jid) as unknown as HistoryRow[];
   },
 
-  clear: (jid) => {
-    db.prepare("DELETE FROM history WHERE jid = ?").run(jid);
+  deleteFrom: async (jid, fromSeq) => {
+    const stmt = await db.prepare("DELETE FROM history WHERE jid = ? AND seq >= ?");
+    await stmt.run(jid, fromSeq);
+  },
+
+  clear: async (jid) => {
+    const stmt = await db.prepare("DELETE FROM history WHERE jid = ?");
+    await stmt.run(jid);
   },
 });

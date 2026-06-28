@@ -7,8 +7,6 @@ import { logger } from "../utils/logger.js";
 import type { GroupRow, GroupsLocalResource } from "../db/index.js";
 import { assertValidGroupFolder, ensureWithinBase } from "../utils/index.js";
 
-// --- Types and interfaces ---
-
 export interface RegisteredGroup {
   jid: string;
   name: string;
@@ -16,42 +14,35 @@ export interface RegisteredGroup {
   addedAt: string;
 }
 
-// --- Repository interface and implementation ---
-
 export interface GroupsRepository {
   getAllAsRecord: () => Record<string, RegisteredGroup>;
   getAllJids: () => Set<string>;
   getByJid: (jid: string) => RegisteredGroup | undefined;
-  register: (jid: string, group: Omit<RegisteredGroup, "jid">) => void;
+  register: (jid: string, group: Omit<RegisteredGroup, "jid">) => Promise<void>;
 }
 
-export const createGroupsRepository = (resource: GroupsLocalResource): GroupsRepository => {
-  const groupRows = resource.getAll();
+export const createGroupsRepository = async (resource: GroupsLocalResource): Promise<GroupsRepository> => {
+  const groupRows = await resource.getAll();
   const registeredGroups: Record<string, RegisteredGroup> = Object.fromEntries(groupRows.map((row) => [row.jid, toRegisteredGroup(row)]));
 
-  const saveGroup = (jid: string, registeredGroup: RegisteredGroup) => {
+  const saveGroup = async (jid: string, registeredGroup: RegisteredGroup) => {
     assertValidGroupFolder(registeredGroup.folder);
-    resource.set(jid, toGroupRow(jid, registeredGroup));
+    await resource.set(jid, toGroupRow(jid, registeredGroup));
     registeredGroups[jid] = registeredGroup;
   };
 
   return {
     getAllAsRecord: () => registeredGroups,
-
     getAllJids: () => new Set(Object.keys(registeredGroups)),
-
     getByJid: (jid) => registeredGroups[jid],
-
-    register: (jid, group) => {
+    register: async (jid, group) => {
       logger.debug({ jid, name: group.name, folder: group.folder }, "Register group...");
       const groupDir = resolveGroupFolderPath(group.folder);
-      saveGroup(jid, { ...group, jid });
+      await saveGroup(jid, { ...group, jid });
       createGroupDirectory(groupDir);
     },
   };
 };
-
-// --- Conversion functions between GroupRow and RegisteredGroup ---
 
 const toRegisteredGroup = (row: GroupRow): RegisteredGroup => ({
   jid: row.jid,
@@ -67,8 +58,6 @@ const toGroupRow = (jid: string, group: RegisteredGroup): GroupRow => ({
   added_at: group.addedAt,
 });
 
-// --- Utility functions for group directory management ---
-
 function resolveGroupFolderPath(folder: string): string {
   assertValidGroupFolder(folder);
   const groupPath = path.resolve(GROUPS_DIR, folder);
@@ -77,25 +66,12 @@ function resolveGroupFolderPath(folder: string): string {
 }
 
 function createGroupDirectory(groupDir: string): void {
-  const memoriesDir = path.join(groupDir, "memories");
-  fs.mkdirSync(memoriesDir, { recursive: true });
+  const groupsDir = path.join(groupDir);
+  fs.mkdirSync(groupsDir, { recursive: true });
 
-  const contextMdPath = path.join(memoriesDir, "context.md");
+  const contextMdPath = path.join(groupDir, "context.md");
   if (!fs.existsSync(contextMdPath)) {
     const defaultContextContent = ["# Relational Context", "*Local preferences and specifications for this chat group.*", ""].join("\n");
     fs.writeFileSync(contextMdPath, defaultContextContent, "utf-8");
-  }
-
-  const indexMdPath = path.join(memoriesDir, "index.md");
-  if (!fs.existsSync(indexMdPath)) {
-    const defaultIndexContent = [
-      "# Memory Vault Index",
-      "*An indexed registry of permanent memory files, specifications, and project assets.*",
-      "",
-      "| File Name | Description | Tags | Last Updated |",
-      "| :--- | :--- | :--- | :--- |",
-      "",
-    ].join("\n");
-    fs.writeFileSync(indexMdPath, defaultIndexContent, "utf-8");
   }
 }

@@ -1,7 +1,7 @@
-import type Database from "better-sqlite3";
+import { type Database } from "@tursodatabase/database";
 
-export const createSchema = (database: Database.Database): void => {
-  database.exec(`
+export const createSchema = async (database: Database): Promise<void> => {
+  await database.exec(`
     CREATE TABLE IF NOT EXISTS registered_groups (
       jid TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -22,13 +22,10 @@ export const createSchema = (database: Database.Database): void => {
       jid TEXT NOT NULL,
       content TEXT NOT NULL,
       tags TEXT NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      embedding F32_BLOB(3072)
     );
 
-    CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
-      memory_id INTEGER PRIMARY KEY,
-      jid TEXT,
-      embedding float[3072] distance_metric=cosine
-    );
+    CREATE INDEX IF NOT EXISTS idx_memories_jid ON memories(jid);
   `);
 };

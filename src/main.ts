@@ -12,11 +12,11 @@ let geminiAgent: GeminiAgent;
 const messagePipe = new Map<string, Array<{ message: InboundMessage; group: Pick<RegisteredGroup, "jid" | "folder"> }>>();
 const activeRuns = new Map<string, boolean>();
 
-const initMain = () => {
+const initMain = async () => {
   channelsRegistry = createChannelsRegistry();
 
-  const localResource = initLocalDatabase();
-  groupsRepo = createGroupsRepository(localResource.groups);
+  const localResource = await initLocalDatabase();
+  groupsRepo = await createGroupsRepository(localResource.groups);
   const historyRepo = createHistoryRepository(localResource.history);
   const memoriesRepo = createMemoriesRepository(localResource.memories);
 
@@ -34,8 +34,9 @@ const initMain = () => {
         await channel.sendMessage(chatJid, `Error: ${message}`);
       }
     },
-    loadHistory: function (jid: string): HistoryEntry[] {
-      return historyRepo.load(jid).map((e): HistoryEntry => {
+    loadHistory: async function (jid: string): Promise<HistoryEntry[]> {
+      const loaded = await historyRepo.load(jid);
+      return loaded.map((e): HistoryEntry => {
         if (e.role === "model") {
           return {
             role: "model",
@@ -157,7 +158,7 @@ const registerChannels = async () => {
 // };
 
 export const main = async () => {
-  initMain();
+  await initMain();
   registerCleanupHandlers();
   await registerChannels();
   // startVoice();

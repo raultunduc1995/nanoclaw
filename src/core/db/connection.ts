@@ -1,5 +1,4 @@
-import Database from "better-sqlite3";
-import * as sqliteVec from "sqlite-vec";
+import { connect, type Database } from "@tursodatabase/database";
 import fs from "fs";
 import path from "path";
 
@@ -20,9 +19,8 @@ export interface LocalResource {
   close(): void;
 }
 
-function createLocalResource(db: Database.Database): LocalResource {
-  sqliteVec.load(db);
-  createSchema(db);
+async function createLocalResource(db: Database): Promise<LocalResource> {
+  await createSchema(db);
 
   return {
     groups: createGroupsLocalResource(db),
@@ -34,15 +32,12 @@ function createLocalResource(db: Database.Database): LocalResource {
 
 let instance: LocalResource | null = null;
 
-export function initLocalDatabase(): LocalResource {
-  const dbPath = path.join(STORE_DIR, "messages.db");
+export async function initLocalDatabase(): Promise<LocalResource> {
+  const dbPath = path.join(STORE_DIR, "turso_messages.db");
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  instance = createLocalResource(new Database(dbPath));
-  logger.info("Database was initialized successfuly");
+  const db = await connect(dbPath);
+  instance = await createLocalResource(db);
+  logger.info("Turso Database was initialized successfully");
   return instance;
 }
 
-export function initTestDatabase(): LocalResource {
-  instance = createLocalResource(new Database(":memory:"));
-  return instance;
-}
