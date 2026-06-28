@@ -8,7 +8,7 @@ import type { Content, FunctionCall, Part, ToolListUnion } from "@google/genai";
 import { logger } from "../core/utils/index.js";
 import type { MessageParam, QueryTurn, Message, ContentBlockParam } from "./types.js";
 import { RefusalError } from "./types.js";
-import type { RegisteredGroup } from "../core/repositories/index.js";
+import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
 import ai from "./genai-client.js";
 import { functionDeclarations } from "./tools-definitions.js";
 import { BashTool } from "./tools/bash-tool.js";
@@ -17,7 +17,7 @@ import { McpClientManager } from "./tools/mcp-client.js";
 import { GROUPS_DIR, MCP_AUTH_SECRET } from "../core/utils/config.js";
 import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-tool.js";
 import { createContext7Tools, type Context7Tools } from "./tools/context7-tools.js";
-
+import { createMemoryTools, type MemoryTools } from "./tools/memory-tools.js";
 export type { ContentBlockParam, MessageParam, Message, QueryTurn } from "./types.js";
 export { RefusalError } from "./types.js";
 
@@ -31,7 +31,11 @@ const GEMINI_PROMPT = `
 - Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps.
 - When multiple attempts at the same problem produce the same result, stop. Slow down and audit. Even ask the user for guidance
 - Stop when the thought ends.
-- SPECIAL INSTRUCTION: think silently only if strictly needed. If the request is a simple status check, conversation routing, or single-turn formatting, skip reasoning steps entirely.`;
+- SPECIAL INSTRUCTION: think silently only if strictly needed. If the request is a simple status check, conversation routing, or single-turn formatting, skip reasoning steps entirely.
+- If you must create ad-hoc bash scripts, test files, or patches, create them ONLY in the '/tmp/' directory. Never write temporary or throwaway files to the project workspace.
+- You have access to a pure local SQLite Active RAG vector database. Use \`save_memory\` to explicitly save high-signal architectural rules, strict preferences, or dense code snippets that need to be permanently embedded in your latent space. DO NOT embed conversational noise.
+- Use \`query_memory\` to perform semantic searches against this vector brain when you need to recall past rules, context, or facts that aren't in your immediate context window.
+- USE THE TEXT EDITOR TOOL. Do not write ad-hoc bash scripts (e.g., node script wrappers) to modify files. It burns tokens. Use the built-in \`text_editor\` or \`mcp_text_editor\` tools exclusively for file updates.`;
 
 const ANDROID_JIDS = ["tg:-5186159689", "tg:-5596082179"];
 const MAX_TOOL_DEPTH = 30;
@@ -69,6 +73,7 @@ async function handleFunctionCalls(
   urlContextToolHandler: UrlContextTool,
   context7ToolsHandler: Context7Tools,
   mcpManager: McpClientManager | null,
+  memoryToolsHandler: MemoryTools,
 ): Promise<QueryTurn> {
   const parts: Part[] = [];
 
@@ -190,6 +195,47 @@ async function handleFunctionCalls(
       parts.push({ functionResponse: context7GetContextResultPart });
       continue;
     }
+    if (functionCall.name === "save_memory") {
+      let result: string = "";
+      try {
+        const args = functionCall.args as { content: string; tags: string[] };
+        result = await memoryToolsHandler.saveMemory(args);
+      } catch (error) {
+        result = error instanceof Error ? error.message : String(error);
+      }
+      parts.push({
+        functionResponse: { name: "save_memory", response: { result }, id: functionCall.id },
+      });
+      continue;
+    }
+
+    if (functionCall.name === "delete_memory") {
+      let result: string = "";
+      try {
+        const args = functionCall.args as { id: number };
+        result = await memoryToolsHandler.deleteMemory(args);
+      } catch (error) {
+        result = error instanceof Error ? error.message : String(error);
+      }
+      parts.push({
+        functionResponse: { name: "delete_memory", response: { result }, id: functionCall.id },
+      });
+      continue;
+    }
+
+    if (functionCall.name === "query_memory") {
+      let result: string = "";
+      try {
+        const args = functionCall.args as { query: string; limit?: number };
+        result = await memoryToolsHandler.queryMemory(args);
+      } catch (error) {
+        result = error instanceof Error ? error.message : String(error);
+      }
+      parts.push({
+        functionResponse: { name: "query_memory", response: { result }, id: functionCall.id },
+      });
+      continue;
+    }
   }
 
   return { role: "user", turn: { role: "user", parts: parts } } as QueryTurn;
@@ -211,9 +257,7 @@ async function generateContent(contents: Content[], activeTools: ToolListUnion, 
     config: {
       systemInstruction: `
         ${GEMINI_PROMPT}
-        - Your dedicated long-term memory namespace directory is located at '${path.resolve(GROUPS_DIR, groupFolder, "memories")}'. You are authorized to use your file-writing tools to create, read, and organize markdown memory files in this directory to persist critical specifications, architectural designs, and user preferences across sessions;
-        - CRITICAL RULE: Whenever you create, modify, or delete a memory file in this directory, you MUST immediately update the index registry at '${path.resolve(GROUPS_DIR, groupFolder, "memories", "index.md")}'. Ensure the index table is kept perfectly up-to-date with the file's name, a concise description of its contents, relevant search tags, and the current update date;
-        - USE THE TEXT EDITOR TOOL. Do not write ad-hoc bash scripts (e.g., node script wrappers) to modify files. It burns tokens. Use the built-in \`text_editor\` or \`mcp_text_editor\` tools exclusively for file updates.\`;`,
+        - Your dedicated workspace directory is located at '${path.resolve(GROUPS_DIR, groupFolder)}'. You are authorized to use your file-writing tools to modify the 'context.md' file here to update core relational and style preferences.`,
       thinkingConfig: {
         includeThoughts: false,
         thinkingLevel: ThinkingLevel.HIGH,
@@ -254,6 +298,7 @@ async function* runQueryLoop(
   urlContextToolHandler: UrlContextTool,
   context7ToolsHandler: Context7Tools,
   mcpManager: McpClientManager | null,
+  memoryToolsHandler: MemoryTools,
   onBeforeGenerate: () => Promise<Array<ContentBlockParam>>,
 ): AsyncGenerator<QueryTurn, void> {
   const activeTools = getActiveTools(group.jid);
@@ -291,14 +336,7 @@ async function* runQueryLoop(
       if (toolCallDepth > MAX_TOOL_DEPTH) {
         userQueryTurn = generateMaxToolDepthReachedResponse(response.functionCalls, toolCallDepth);
       } else {
-        userQueryTurn = await handleFunctionCalls(
-          response.functionCalls,
-          bashToolHandler,
-          textEditorToolHandler,
-          urlContextToolHandler,
-          context7ToolsHandler,
-          mcpManager
-        );
+        userQueryTurn = await handleFunctionCalls(response.functionCalls, bashToolHandler, textEditorToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler);
       }
 
       inputMessages.push(userQueryTurn.turn);
@@ -314,12 +352,14 @@ async function* runQueryLoop(
 export async function* query(
   messages: Array<MessageParam>,
   group: Pick<RegisteredGroup, "jid" | "folder">,
+  memoriesRepository: MemoriesRepository,
   onBeforeGenerate: () => Promise<Array<ContentBlockParam>>,
 ): AsyncGenerator<QueryTurn, void> {
   const bashToolHandler = BashTool.init(os.homedir());
   const textEditorToolHandler = TextEditorTool.init(os.homedir());
   const urlContextToolHandler = createUrlContextTool();
   const context7ToolsHandler = createContext7Tools();
+  const memoryToolsHandler = createMemoryTools(memoriesRepository, group.jid);
   let mcpManager: McpClientManager | null = null;
 
   const inputMessages: Array<Content> = messages.map((m): Content => ({ role: m.role, parts: m.parts }));
@@ -335,16 +375,7 @@ export async function* query(
       });
     }
 
-    yield* runQueryLoop(
-      inputMessages,
-      group,
-      bashToolHandler,
-      textEditorToolHandler,
-      urlContextToolHandler,
-      context7ToolsHandler,
-      mcpManager,
-      onBeforeGenerate
-    );
+    yield* runQueryLoop(inputMessages, group, bashToolHandler, textEditorToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler, onBeforeGenerate);
   } catch (error) {
     if (error instanceof RefusalError) {
       logger.warn(error.message);

@@ -201,4 +201,57 @@ export const functionDeclarations: FunctionDeclaration[] = [
       required: ["query", "libraryId"],
     },
   },
+  {
+    name: "save_memory",
+    description: "Save an explicit, high-signal architectural rule, preference, or snippet into the persistent local SQLite vector database.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        content: {
+          type: Type.STRING,
+          description: "The exact, dense, factual text to remember.",
+        },
+        tags: {
+          type: Type.ARRAY,
+          description: "A list of topics/keywords this memory relates to.",
+          items: {
+            type: Type.STRING,
+          },
+        },
+      },
+      required: ["content", "tags"],
+    },
+  },
+  {
+    name: "query_memory",
+    description: "Perform a semantic RAG vector search across the local memory vault to recall previously saved rules, snippets, or facts.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        query: {
+          type: Type.STRING,
+          description: "The concept, topic, or question to search the vector database for.",
+        },
+        limit: {
+          type: Type.INTEGER,
+          description: "Optional number of results to return (default 10).",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "delete_memory",
+    description: "Delete a specific memory from the vector database by its integer ID.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        id: {
+          type: Type.INTEGER,
+          description: "The ID of the memory to delete.",
+        },
+      },
+      required: ["id"],
+    },
+  }
 ];

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
 import fs from "fs";
 import path from "path";
 
@@ -9,19 +10,24 @@ import { createGroupsLocalResource } from "./resources/groups.js";
 import type { GroupsLocalResource } from "./resources/groups.js";
 import { createHistoryLocalResource } from "./resources/history.js";
 import type { HistoryLocalResource } from "./resources/history.js";
+import { createMemoriesLocalResource } from "./resources/memories.js";
+import type { MemoriesLocalResource } from "./resources/memories.js";
 
 export interface LocalResource {
   groups: GroupsLocalResource;
   history: HistoryLocalResource;
+  memories: MemoriesLocalResource;
   close(): void;
 }
 
 function createLocalResource(db: Database.Database): LocalResource {
+  sqliteVec.load(db);
   createSchema(db);
 
   return {
     groups: createGroupsLocalResource(db),
     history: createHistoryLocalResource(db),
+    memories: createMemoriesLocalResource(db),
     close: () => db.close(),
   };
 }

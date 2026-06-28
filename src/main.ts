@@ -1,7 +1,7 @@
 import { logger } from "./core/utils/index.js";
 import { createChannelsRegistry, type ChannelsRegistry, type TelegramChannelOpts, type InboundMessage } from "./channels/index.js";
 import { initLocalDatabase } from "./core/db/index.js";
-import { createGroupsRepository, createHistoryRepository, type HistoryEntry, type GroupsRepository, type RegisteredGroup } from "./core/repositories/index.js";
+import { createGroupsRepository, createHistoryRepository, createMemoriesRepository, type HistoryEntry, type GroupsRepository, type RegisteredGroup } from "./core/repositories/index.js";
 // import { startVoiceServer } from "./voice/index.js";
 import { createGeminiAgent, type GeminiAgent, type GeminiAgentInput } from "./google-agent/index.js";
 
@@ -11,14 +11,17 @@ let geminiAgent: GeminiAgent;
 
 const messagePipe = new Map<string, Array<{ message: InboundMessage; group: Pick<RegisteredGroup, "jid" | "folder"> }>>();
 const activeRuns = new Map<string, boolean>();
+
 const initMain = () => {
   channelsRegistry = createChannelsRegistry();
 
   const localResource = initLocalDatabase();
   groupsRepo = createGroupsRepository(localResource.groups);
   const historyRepo = createHistoryRepository(localResource.history);
+  const memoriesRepo = createMemoriesRepository(localResource.memories);
 
   geminiAgent = createGeminiAgent({
+    memoriesRepository: memoriesRepo,
     onOutput: async ({ chatJid, message }) => {
       const channel = channelsRegistry.findChannel(chatJid);
       if (channel) {
@@ -62,6 +65,7 @@ const initMain = () => {
     },
   });
 };
+
 const registerCleanupHandlers = () => {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Shutdown signal received");

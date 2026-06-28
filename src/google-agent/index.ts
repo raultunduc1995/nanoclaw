@@ -5,7 +5,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import { query, type ContentBlockParam, RefusalError, type QueryTurn, type MessageParam } from "../google-genai/index.js";
 import { logger, TIMEZONE, GROUPS_DIR } from "../core/utils/index.js";
 import type { GeminiAgentInput } from "./types.js";
-import type { HistoryEntry, RegisteredGroup } from "../core/repositories/index.js";
+import type { HistoryEntry, RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
 
 export type { GeminiAgentInput } from "./types.js";
 
@@ -18,6 +18,7 @@ const formatDateTime = (): string => Temporal.Now.zonedDateTimeISO(TIMEZONE).toP
 const wrapMessage = (senderName: string, content: string): string => `[${formatDateTime()}] ${senderName}:\n${content}`;
 
 interface GeminiAgentDeps {
+  memoriesRepository: MemoriesRepository;
   onOutput: (result: { chatJid: string; message: string }) => Promise<void>;
   onError: (error: { chatJid: string; message: string }) => Promise<void>;
   loadHistory: (jid: string) => HistoryEntry[];
@@ -94,7 +95,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
     let queryTurn: QueryTurn | null = null;
     try {
-      for await (const response of query(partsHistory, input.group, onBeforeGenerate)) {
+      for await (const response of query(partsHistory, input.group, deps.memoriesRepository, onBeforeGenerate)) {
         await handleResponse(chatJid, history, response);
         queryTurn = response;
       }
@@ -106,14 +107,14 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     return queryTurn;
   };
 
-  const injectIndexMdAndContextMd = async (group: Pick<RegisteredGroup, "jid" | "folder">) => {
+  const injectContextMd = async (group: Pick<RegisteredGroup, "jid" | "folder">) => {
     const chatJid: string = group.jid;
-    let history = deps.loadHistory(chatJid);
+    const history = deps.loadHistory(chatJid);
     if (history.length > 0) return;
 
-    logger.debug({ chatJid }, "Injecting index.md and context.md if available");
+    logger.debug({ chatJid }, "Injecting context.md if available");
 
-    const contextMdPath = path.resolve(GROUPS_DIR, group.folder, "memories", "context.md");
+    const contextMdPath = path.resolve(GROUPS_DIR, group.folder, "context.md");
     if (fs.existsSync(contextMdPath)) {
       const contextMdContent = fs.readFileSync(contextMdPath, "utf-8");
       if (contextMdContent) {
@@ -123,22 +124,6 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
           prompt: `Below are the critical relational and style preferences for our partnership. Read and internalize these FIRST:
             
             ${contextMdContent}`,
-          group,
-        });
-      }
-    }
-
-    history = deps.loadHistory(chatJid);
-    const indexMdPath = path.resolve(GROUPS_DIR, group.folder, "memories", "index.md");
-    if (fs.existsSync(indexMdPath)) {
-      const indexMdContent = fs.readFileSync(indexMdPath, "utf-8");
-      if (indexMdContent) {
-        await runInternal(history, {
-          kind: "text",
-          userName: "System",
-          prompt: `Additionally, I will provide below the memory index file at '${path.resolve(GROUPS_DIR, group.folder, "memories", "index.md")}' to see what permanent specifications and memories are available in this workspace:
-
-            ${indexMdContent}`,
           group,
         });
       }
@@ -161,7 +146,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
     deps.clearHistory(chatJid);
 
-    await injectIndexMdAndContextMd(group);
+    await injectContextMd(group);
 
     let summary: string = "";
     for (const part of queryTurn.turn.parts) {
@@ -180,7 +165,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const chatJid = input.group.jid;
     logger.debug({ chatJid, input }, "Received input from the user");
 
-    await injectIndexMdAndContextMd(input.group);
+    await injectContextMd(input.group);
 
     const history = deps.loadHistory(chatJid);
     const queryTurn: QueryTurn | null = await runInternal(history, input);
