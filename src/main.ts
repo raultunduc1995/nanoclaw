@@ -95,7 +95,7 @@ const runAgentLoop = async (chatJid: string) => {
           : inputMsg.kind === "image"
             ? { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.imageBase64, mimeType: inputMsg.imageMimeType }, group: inputGroup }
             : { kind: "video", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.videoBase64, mimeType: inputMsg.videoMimeType }, group: inputGroup };
-      await geminiAgent.run(initialInput);
+      await geminiAgent.runQuery(initialInput);
     }
   } catch (err) {
     logger.error({ chatJid, err }, "Error running agent loop");
@@ -116,6 +116,13 @@ const registerChannels = async () => {
       messagePipe.set(chatJid, inputs);
 
       runAgentLoop(chatJid);
+    },
+    onCommand: async (command, group) => {
+      if (command === "compact") {
+        await geminiAgent.runCompaction(group).catch((err) => {
+          logger.error({ err, jid: group.jid }, "Failed to manually compact context");
+        });
+      }
     },
     getRegisteredGroups: () => groupsRepo.getAllAsRecord(),
     registerNewGroup: (jid, group) => groupsRepo.register(jid, group),

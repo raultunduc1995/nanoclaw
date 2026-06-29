@@ -34,7 +34,7 @@ export interface ChannelOpts {
    * @param message
    */
   onInboundMessage: (message: InboundMessage, group: RegisteredGroup) => void;
-
+  onCommand: (command: "compact", group: RegisteredGroup) => void;
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
   registerNewGroup: (jid: string, group: Omit<RegisteredGroup, "jid">) => void;
 }

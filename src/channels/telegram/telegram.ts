@@ -40,6 +40,18 @@ export class TelegramChannel implements Channel {
       // this.opts.registerNewGroup(`tg:${chatId}`, { name: `${chatName}`, folder: `telegram-${chatName}`, addedAt: new Date().toISOString() });
     });
 
+    this.bot.command("compact", async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.getRegisteredGroups()[chatJid];
+      if (!group) {
+        logger.warn({ chatJid }, "Message from unregistered Telegram chat");
+        return;
+      }
+
+      await ctx.reply("Compaction sequence initiated. The AI will summarize the context.", { parse_mode: "Markdown" });
+      this.opts.onCommand("compact", group);
+    });
+
     this.bot.on("message:text", async (ctx) => {
       if (ctx.message.text.startsWith("/")) return;
 

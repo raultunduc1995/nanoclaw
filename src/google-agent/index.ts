@@ -10,7 +10,8 @@ import type { HistoryEntry, RegisteredGroup, MemoriesRepository } from "../core/
 export type { GeminiAgentInput } from "./types.js";
 
 export interface GeminiAgent {
-  run: (input: GeminiAgentInput) => Promise<void>;
+  runCompaction: (group: Pick<RegisteredGroup, "jid" | "folder">) => Promise<void>;
+  runQuery: (input: GeminiAgentInput) => Promise<void>;
 }
 
 const formatDateTime = (): string => Temporal.Now.zonedDateTimeISO(TIMEZONE).toPlainDateTime().toString({ fractionalSecondDigits: 0 });
@@ -161,7 +162,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     });
   };
 
-  const run = async (input: GeminiAgentInput): Promise<void> => {
+  const runQuery = async (input: GeminiAgentInput): Promise<void> => {
     const chatJid = input.group.jid;
     logger.debug({ chatJid, input }, "Received input from the user");
 
@@ -177,6 +178,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
   };
 
   return {
-    run,
+    runQuery,
+    runCompaction,
   };
 };
