@@ -40,4 +40,3 @@ export async function initLocalDatabase(): Promise<LocalResource> {
   logger.info("Turso Database was initialized successfully");
   return instance;
 }
-

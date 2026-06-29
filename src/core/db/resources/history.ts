@@ -22,7 +22,7 @@ export const createHistoryLocalResource = (db: Database): HistoryLocalResource =
 
   getAll: async (jid) => {
     const stmt = await db.prepare("SELECT * FROM history WHERE jid = ? ORDER BY seq");
-    return await stmt.all(jid) as unknown as HistoryRow[];
+    return (await stmt.all(jid)) as unknown as HistoryRow[];
   },
 
   deleteFrom: async (jid, fromSeq) => {

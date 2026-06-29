@@ -134,7 +134,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const chatJid: string = group.jid;
     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 
-    const queryTurn: QueryTurn | null = await runInternal((await deps.loadHistory(chatJid)), {
+    const queryTurn: QueryTurn | null = await runInternal(await deps.loadHistory(chatJid), {
       kind: "text",
       userName: "System",
       prompt: `Summarize the entire conversation and send it back to me.
@@ -153,7 +153,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       if (part.thought) continue;
       if (part.text) summary += part.text + "\n\n";
     }
-    await runInternal((await deps.loadHistory(chatJid)), {
+    await runInternal(await deps.loadHistory(chatJid), {
       kind: "text",
       userName: "System",
       prompt: `Context was compacted. Read the convo summary below:\n\n${summary}`,
