@@ -77,16 +77,18 @@ async function handleFunctionCalls(
 
   for (const functionCall of functionCalls) {
     if (functionCall.name === "mcp_bash") {
-      let result: string = "";
+      let responsePayload: Record<string, unknown>;
       try {
         if (!mcpManager) throw new Error("MCP client manager not initialized");
-        result = await mcpManager.callTool("work-mac__bash", functionCall.args as Record<string, unknown>);
+        const result = await mcpManager.callTool("work-mac__bash", functionCall.args as Record<string, unknown>);
+
+        responsePayload = { output: result };
       } catch (error) {
-        result = error instanceof Error ? error.message : String(error);
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
       const mcpBashToolResultPart = {
         name: "mcp_bash",
-        response: { result },
+        response: responsePayload,
         id: functionCall.id,
       };
       parts.push({ functionResponse: mcpBashToolResultPart });
@@ -94,16 +96,18 @@ async function handleFunctionCalls(
     }
 
     if (functionCall.name === "mcp_text_editor") {
-      let result: string = "";
+      let responsePayload: Record<string, unknown>;
       try {
         if (!mcpManager) throw new Error("MCP client manager not initialized");
-        result = await mcpManager.callTool("work-mac__text_editor", functionCall.args as Record<string, unknown>);
+        const result = await mcpManager.callTool("work-mac__text_editor", functionCall.args as Record<string, unknown>);
+
+        responsePayload = { output: result };
       } catch (error) {
-        result = error instanceof Error ? error.message : String(error);
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
       const mcpTextEditorToolResultPart = {
         name: "mcp_text_editor",
-        response: { result },
+        response: responsePayload,
         id: functionCall.id,
       };
       parts.push({ functionResponse: mcpTextEditorToolResultPart });
@@ -111,15 +115,17 @@ async function handleFunctionCalls(
     }
 
     if (functionCall.name === "bash") {
-      let result: string = "";
+      let responsePayload: Record<string, unknown>;
       try {
-        result = await bashToolHandler.execute(functionCall.args as { command?: string; restart?: boolean });
+        const result = await bashToolHandler.execute(functionCall.args as { command?: string; restart?: boolean });
+
+        responsePayload = { output: result };
       } catch (error) {
-        result = error instanceof Error ? error.message : String(error);
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
       const bashToolResultPart = {
         name: "bash",
-        response: { result },
+        response: responsePayload,
         id: functionCall.id,
       };
       parts.push({ functionResponse: bashToolResultPart });
@@ -127,15 +133,17 @@ async function handleFunctionCalls(
     }
 
     if (functionCall.name === "text_editor") {
-      let result: string = "";
+      let responsePayload: Record<string, unknown>;
       try {
-        result = await textEditorToolHandler.execute(functionCall.args as Record<string, unknown>);
+        const result = await textEditorToolHandler.execute(functionCall.args as Record<string, unknown>);
+
+        responsePayload = { output: result };
       } catch (error) {
-        result = error instanceof Error ? error.message : String(error);
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
       const textEditorToolResultPart = {
         name: "text_editor",
-        response: { result },
+        response: responsePayload,
         id: functionCall.id,
       };
       parts.push({ functionResponse: textEditorToolResultPart });
@@ -143,16 +151,18 @@ async function handleFunctionCalls(
     }
 
     if (functionCall.name === "fetch_url_context") {
-      let result: string = "";
+      let responsePayload: Record<string, unknown>;
       try {
         const args = functionCall.args as { url: string; query: string };
-        result = await urlContextToolHandler.execute(args);
+        const result = await urlContextToolHandler.execute(args);
+
+        responsePayload = { output: result };
       } catch (error) {
-        result = error instanceof Error ? error.message : String(error);
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
       const urlContextToolResultPart = {
         name: "fetch_url_context",
-        response: { result },
+        response: responsePayload,
         id: functionCall.id,
       };
       logger.debug({ urlContextToolResultPart }, "Fetch url context tool result");
@@ -161,16 +171,18 @@ async function handleFunctionCalls(
     }
 
     if (functionCall.name === "context7_search_library") {
-      let result: string = "";
+      let responsePayload: Record<string, unknown>;
       try {
         const args = functionCall.args as { query: string; libraryName?: string };
-        result = await context7ToolsHandler.searchLibrary(args);
+        const result = await context7ToolsHandler.searchLibrary(args);
+
+        responsePayload = { output: result };
       } catch (error) {
-        result = error instanceof Error ? error.message : String(error);
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
       const context7SearchLibraryResultPart = {
         name: "context7_search_library",
-        response: { result },
+        response: responsePayload,
         id: functionCall.id,
       };
       parts.push({ functionResponse: context7SearchLibraryResultPart });
@@ -178,59 +190,67 @@ async function handleFunctionCalls(
     }
 
     if (functionCall.name === "context7_get_context") {
-      let result: string = "";
+      let responsePayload: Record<string, unknown>;
       try {
         const args = functionCall.args as { query: string; libraryId: string };
-        result = await context7ToolsHandler.getContext(args);
+        const result = await context7ToolsHandler.getContext(args);
+
+        responsePayload = { output: result };
       } catch (error) {
-        result = error instanceof Error ? error.message : String(error);
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
       const context7GetContextResultPart = {
         name: "context7_get_context",
-        response: { result },
+        response: responsePayload,
         id: functionCall.id,
       };
       parts.push({ functionResponse: context7GetContextResultPart });
       continue;
     }
     if (functionCall.name === "save_memory") {
-      let result: string = "";
+      let responsePayload: Record<string, unknown>;
       try {
         const args = functionCall.args as { content: string; tags: string[] };
-        result = await memoryToolsHandler.saveMemory(args);
+        const result = await memoryToolsHandler.saveMemory(args);
+
+        responsePayload = { output: result };
       } catch (error) {
-        result = error instanceof Error ? error.message : String(error);
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
       parts.push({
-        functionResponse: { name: "save_memory", response: { result }, id: functionCall.id },
+        functionResponse: { name: "save_memory", response: responsePayload, id: functionCall.id },
       });
       continue;
     }
 
     if (functionCall.name === "delete_memory") {
-      let result: string = "";
+      let responsePayload: Record<string, unknown>;
       try {
         const args = functionCall.args as { id: number };
-        result = await memoryToolsHandler.deleteMemory(args);
+        const result = await memoryToolsHandler.deleteMemory(args);
+
+        responsePayload = { output: result };
       } catch (error) {
-        result = error instanceof Error ? error.message : String(error);
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
       parts.push({
-        functionResponse: { name: "delete_memory", response: { result }, id: functionCall.id },
+        functionResponse: { name: "delete_memory", response: responsePayload, id: functionCall.id },
       });
       continue;
     }
 
     if (functionCall.name === "query_memory") {
-      let result: string = "";
+      let responsePayload: Record<string, unknown>;
       try {
-        const args = functionCall.args as { query: string; limit?: number };
-        result = await memoryToolsHandler.queryMemory(args);
+        const args = functionCall.args as { query: string; limit?: number; tags?: string[] };
+        const result = await memoryToolsHandler.queryMemory(args);
+
+        responsePayload = { output: result };
       } catch (error) {
-        result = error instanceof Error ? error.message : String(error);
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
       parts.push({
-        functionResponse: { name: "query_memory", response: { result }, id: functionCall.id },
+        functionResponse: { name: "query_memory", response: responsePayload, id: functionCall.id },
       });
       continue;
     }

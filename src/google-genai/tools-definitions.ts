@@ -236,6 +236,11 @@ export const functionDeclarations: FunctionDeclaration[] = [
           type: Type.INTEGER,
           description: "Optional number of results to return (default 10).",
         },
+        tags: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description: "Optional array of tags to strictly pre-filter the vector search.",
+        },
       },
       required: ["query"],
     },

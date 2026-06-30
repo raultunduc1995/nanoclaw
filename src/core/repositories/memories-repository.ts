@@ -3,7 +3,7 @@ import ai from "../../google-genai/genai-client.js";
 
 export interface MemoriesRepository {
   saveMemory: (jid: string, content: string, tags: string[]) => Promise<number>;
-  queryMemories: (jid: string, query: string, limit?: number) => Promise<MemorySearchResult[]>;
+  queryMemories: (jid: string, query: string, limit?: number, tags?: string[]) => Promise<MemorySearchResult[]>;
   deleteMemory: (jid: string, id: number) => Promise<boolean>;
 }
 
@@ -26,7 +26,7 @@ export const createMemoriesRepository = (resource: MemoriesLocalResource): Memor
     return await resource.delete(jid, id);
   },
 
-  queryMemories: async (jid, query, limit = 10) => {
+  queryMemories: async (jid, query, limit = 10, tags) => {
     const response = await ai.models.embedContent({
       model: "gemini-embedding-2",
       contents: query,
@@ -37,6 +37,6 @@ export const createMemoriesRepository = (resource: MemoriesLocalResource): Memor
       throw new Error("Failed to generate embedding for search query");
     }
 
-    return await resource.searchFull(jid, embedding, limit);
+    return await resource.searchFull(jid, embedding, limit, tags);
   },
 });

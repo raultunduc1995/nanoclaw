@@ -2,7 +2,7 @@ import { MemoriesRepository } from "../../core/repositories/memories-repository.
 
 export interface MemoryTools {
   saveMemory: (args: { content: string; tags: string[] }) => Promise<string>;
-  queryMemory: (args: { query: string; limit?: number }) => Promise<string>;
+  queryMemory: (args: { query: string; limit?: number; tags?: string[] }) => Promise<string>;
   deleteMemory: (args: { id: number }) => Promise<string>;
 }
 
@@ -34,9 +34,9 @@ export const createMemoryTool = (repo: MemoriesRepository, jid: string): MemoryT
         return `Error deleting memory: ${String(error)}`;
       }
     },
-    queryMemory: async ({ query, limit }) => {
+    queryMemory: async ({ query, limit, tags }) => {
       try {
-        const results = await repo.queryMemories(jid, query, limit);
+        const results = await repo.queryMemories(jid, query, limit, tags);
         if (results.length === 0) {
           return "No relevant memories found for that query.";
         }

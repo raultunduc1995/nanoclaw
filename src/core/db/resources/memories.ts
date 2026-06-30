@@ -14,7 +14,7 @@ export interface MemorySearchResult extends MemoryRecord {
 
 export interface MemoriesLocalResource {
   insert: (jid: string, content: string, tags: string[], embedding: number[]) => Promise<number>;
-  searchFull: (jid: string, embedding: number[], limit?: number) => Promise<MemorySearchResult[]>;
+  searchFull: (jid: string, embedding: number[], limit?: number, tags?: string[]) => Promise<MemorySearchResult[]>;
   delete: (jid: string, id: number) => Promise<boolean>;
 }
 
@@ -33,19 +33,27 @@ export const createMemoriesLocalResource = (db: Database): MemoriesLocalResource
       const info = await deleteStmt.run(id, jid);
       return info.changes > 0;
     },
-    searchFull: async (jid, embedding, limit = 10) => {
+    searchFull: async (jid, embedding, limit = 10, tags) => {
       const embeddingStr = JSON.stringify(embedding);
-      const searchStmt = await db.prepare(`
+      let baseSql = `
         SELECT 
           id, jid, content, tags, created_at as createdAt, 
           vector_distance_cos(embedding, vector(?)) as distance
         FROM memories
         WHERE jid = ?
-        ORDER BY distance ASC
-        LIMIT ?
-      `);
+      `;
+      const params: unknown[] = [embeddingStr, jid];
 
-      const results = (await searchStmt.all(embeddingStr, jid, limit)) as Array<{
+      if (tags && tags.length > 0) {
+        baseSql += ` AND EXISTS (SELECT 1 FROM json_each(memories.tags) WHERE value IN (${tags.map(() => "?").join(", ")}))`;
+        params.push(...tags);
+      }
+
+      baseSql += ` ORDER BY distance ASC LIMIT ?`;
+      params.push(limit);
+
+      const searchStmt = await db.prepare(baseSql);
+      const results = (await searchStmt.all(...params)) as Array<{
         id: number;
         jid: string;
         content: string;
