@@ -20,59 +20,6 @@ export const functionDeclarations: FunctionDeclaration[] = [
     },
   },
   {
-    name: "text_editor",
-    description: "Executes a text editor command such as view, replace_lines, create, or insert on a specified file path.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        command: {
-          type: Type.STRING,
-          description: "The type of editor command to execute.",
-          enum: ["view", "replace_lines", "create", "insert"],
-        },
-        path: {
-          type: Type.STRING,
-          description: "The file system path where the command should be executed.",
-        },
-        view_range: {
-          type: Type.ARRAY,
-          description: "Optional: A tuple containing the starting and ending line numbers to view [start, end]. Only used with 'view' command.",
-          items: {
-            type: Type.INTEGER,
-          },
-          minItems: "2",
-          maxItems: "2",
-        },
-        new_str: {
-          type: Type.STRING,
-          description: "The text content to replace the specified lines with. Required only for 'replace_lines' command.",
-        },
-        replace_range: {
-          type: Type.ARRAY,
-          description: "A tuple containing the starting and ending line numbers to replace [start, end]. Required only for 'replace_lines' command.",
-          items: {
-            type: Type.INTEGER,
-          },
-          minItems: "2",
-          maxItems: "2",
-        },
-        file_text: {
-          type: Type.STRING,
-          description: "The initial text content for creating a file. Required only for 'create' command.",
-        },
-        insert_line: {
-          type: Type.INTEGER,
-          description: "The line number where text should be inserted. Required only for 'insert' command.",
-        },
-        insert_text: {
-          type: Type.STRING,
-          description: "The text content to insert. Required only for 'insert' command.",
-        },
-      },
-      required: ["command", "path"],
-    },
-  },
-  {
     name: "mcp_bash",
     description: "Execute a single bash command string on the remote work-mac server.",
     parameters: {
@@ -95,53 +42,55 @@ export const functionDeclarations: FunctionDeclaration[] = [
     },
   },
   {
-    name: "mcp_text_editor",
-    description: "Executes a text editor command on a specified file path on the remote work-mac server.",
+    name: "mcp_ast_grep",
+    description: `Execute structural code search, patching, and code outlining using Abstract Syntax Trees (ast-grep/sg) on the remote work-mac server. EXCLUSIVELY USE FOR FILES THAT CONTAIN CODE (do not use for markdown or plain text).
+Usage & Combinations:
+- rule: Structural search and replace using JSON logic (e.g. pattern, inside, has, not).
+  - You must provide 'language' (e.g., 'typescript', 'kotlin').
+  - 'rule' is a JSON object with conditions. Metavariables: $VAR (single node), $$$VAR (multiple nodes).
+  - 'fix' is an optional string to replace matches.
+  Example rule (JSON): { "pattern": "console.log($$$)", "inside": { "kind": "method_definition" } }
+- outline: Map code structure without reading full files.
+  - Map directory API surface: path: 'dir/', items: 'exports', view: 'names'
+  - Trace dependencies: path: 'dir/', items: 'imports', view: 'signatures'
+  - Map local file structure: path: 'file.ts', items: 'structure', view: 'digest'
+  - Zoom into symbol types: path: 'file.ts', type: 'class,function', view: 'expanded'
+  Example outline args (JSON): { "command": "outline", "path": "src/", "items": "exports", "view": "signatures" }`,
     parameters: {
       type: Type.OBJECT,
       properties: {
         command: {
           type: Type.STRING,
-          description: "The type of editor command to execute on the remote server.",
-          enum: ["view", "replace_lines", "create", "insert"],
+          description: "The ast-grep command to run.",
+          enum: ["rule", "outline"],
         },
         path: {
           type: Type.STRING,
-          description: "The remote file system path where the command should be executed.",
+          description: "The file or directory path to search/modify on the remote work-mac server.",
         },
-        view_range: {
-          type: Type.ARRAY,
-          description: "Optional: A tuple containing the starting and ending line numbers to view [start, end]. Only used with 'view' command.",
-          items: {
-            type: Type.INTEGER,
-          },
-          minItems: "2",
-          maxItems: "2",
-        },
-        new_str: {
+        language: {
           type: Type.STRING,
-          description: "The text content to replace the specified lines with. Required only for 'replace_lines' command on the remote server.",
+          description: "The language of the target files (e.g. 'typescript', 'kotlin'). Required for 'rule'.",
         },
-        replace_range: {
-          type: Type.ARRAY,
-          description: "A tuple containing the starting and ending line numbers to replace [start, end]. Required only for 'replace_lines' command on the remote server.",
-          items: {
-            type: Type.INTEGER,
-          },
-          minItems: "2",
-          maxItems: "2",
+        rule: {
+          type: Type.OBJECT,
+          description: "The pure JSON object representing the ast-grep rule conditions (e.g. { pattern: '...' }). Required for 'rule'.",
         },
-        file_text: {
+        fix: {
           type: Type.STRING,
-          description: "The initial text content for creating a file. Required only for 'create' command on the remote server.",
+          description: "Optional replacement string for matches found by the rule (used for patching).",
         },
-        insert_line: {
-          type: Type.INTEGER,
-          description: "The line number where text should be inserted. Required only for 'insert' command on the remote server.",
-        },
-        insert_text: {
+        items: {
           type: Type.STRING,
-          description: "The text content to insert. Required only for 'insert' command on the remote server.",
+          description: "Top-level items to outline. Options: 'structure', 'exports', 'imports', 'all' (used for 'outline').",
+        },
+        view: {
+          type: Type.STRING,
+          description: "Outline detail level. Options: 'names', 'signatures', 'digest', 'expanded' (used for 'outline').",
+        },
+        type: {
+          type: Type.STRING,
+          description: "Comma-separated list of top-level symbol types to filter (e.g. 'class,function') (used for 'outline').",
         },
       },
       required: ["command", "path"],
@@ -257,6 +206,61 @@ export const functionDeclarations: FunctionDeclaration[] = [
         },
       },
       required: ["id"],
+    },
+  },
+  {
+    name: "ast_grep",
+    description: `Execute structural code search, patching, and code outlining using Abstract Syntax Trees (ast-grep/sg). EXCLUSIVELY USE FOR FILES THAT CONTAIN CODE (do not use for markdown or plain text).
+Usage & Combinations:
+- rule: Structural search and replace using JSON logic (e.g. pattern, inside, has, not).
+  - You must provide 'language' (e.g., 'typescript', 'kotlin').
+  - 'rule' is a JSON object with conditions. Metavariables: $VAR (single node), $$$VAR (multiple nodes).
+  - 'fix' is an optional string to replace matches.
+  Example rule (JSON): { "pattern": "console.log($$$)", "inside": { "kind": "method_definition" } }
+- outline: Map code structure without reading full files.
+  - Map directory API surface: path: 'dir/', items: 'exports', view: 'names'
+  - Trace dependencies: path: 'dir/', items: 'imports', view: 'signatures'
+  - Map local file structure: path: 'file.ts', items: 'structure', view: 'digest'
+  - Zoom into symbol types: path: 'file.ts', type: 'class,function', view: 'expanded'
+  Example outline args (JSON): { "command": "outline", "path": "src/", "items": "exports", "view": "signatures" }`,
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        command: {
+          type: Type.STRING,
+          description: "The ast-grep command to run.",
+          enum: ["rule", "outline"],
+        },
+        path: {
+          type: Type.STRING,
+          description: "The file or directory path to search/modify.",
+        },
+        language: {
+          type: Type.STRING,
+          description: "The language of the target files (e.g. 'typescript', 'kotlin'). Required for 'rule'.",
+        },
+        rule: {
+          type: Type.OBJECT,
+          description: "The pure JSON object representing the ast-grep rule conditions (e.g. { pattern: '...' }). Required for 'rule'.",
+        },
+        fix: {
+          type: Type.STRING,
+          description: "Optional replacement string for matches found by the rule (used for patching).",
+        },
+        items: {
+          type: Type.STRING,
+          description: "Top-level items to outline. Options: 'structure', 'exports', 'imports', 'all' (used for 'outline').",
+        },
+        view: {
+          type: Type.STRING,
+          description: "Outline detail level. Options: 'names', 'signatures', 'digest', 'expanded' (used for 'outline').",
+        },
+        type: {
+          type: Type.STRING,
+          description: "Comma-separated list of top-level symbol types to filter (e.g. 'class,function') (used for 'outline').",
+        },
+      },
+      required: ["command", "path"],
     },
   },
 ];

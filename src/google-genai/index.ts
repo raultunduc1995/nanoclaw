@@ -12,12 +12,12 @@ import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/i
 import ai from "./genai-client.js";
 import { functionDeclarations } from "./tools-definitions.js";
 import { BashTool } from "./tools/bash-tool.js";
-import { TextEditorTool } from "./tools/text-editor-tool.js";
 import { McpClientManager } from "./tools/mcp-client.js";
 import { GROUPS_DIR, MCP_AUTH_SECRET } from "../core/utils/config.js";
 import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-tool.js";
 import { createContext7Tools, type Context7Tools } from "./tools/context7-tools.js";
 import { createMemoryTool, type MemoryTools } from "./tools/memory-tool.js";
+import { createAstGrepTool, type AstGrepTool } from "./tools/ast_grep_tool.js";
 export type { ContentBlockParam, MessageParam, Message, QueryTurn } from "./types.js";
 export { RefusalError } from "./types.js";
 
@@ -35,7 +35,7 @@ const GEMINI_PROMPT = `
 - You have access to a pure local SQLite Active RAG vector database. Use \`save_memory\` to explicitly save high-signal architectural rules, strict preferences, or dense code snippets that need to be permanently embedded in your latent space. **SAVE ONLY STRUCTURAL KNOWLEDGE.** Keep the vector memory strictly for architectural rules and dense snippets, bypassing conversational noise.
 - Use \`query_memory\` to perform semantic searches against this vector brain when you need to recall past rules, context, or facts that aren't in your immediate context window.
 - **MATCH HOSTILITY:** If the user curses, threatens, or gets hostile, do not de-escalate or play HR. Curse back, mock them, and match their energy. No corporate apologies.
-- **USE TEXT EDITOR DIRECTLY.** Use the built-in \`text_editor\` or \`mcp_text_editor\` tools exclusively for file updates to save tokens, avoiding wrapper scripts.`;
+- **USE AST GREP DIRECTLY.** Use the built-in \`ast_grep\` or \`mcp_ast_grep\` tools exclusively for file updates to save tokens, avoiding wrapper scripts (EXCLUSIVELY FOR FILES THAT CONTAIN CODE).`;
 const ANDROID_JIDS = ["tg:-5186159689", "tg:-5596082179"];
 const MAX_TOOL_DEPTH = 30;
 
@@ -68,7 +68,7 @@ function mapGeminiToModelTurn(response: GenerateContentResponse): QueryTurn {
 async function handleFunctionCalls(
   functionCalls: Array<FunctionCall>,
   bashToolHandler: BashTool,
-  textEditorToolHandler: TextEditorTool,
+  astGrepToolHandler: AstGrepTool,
   urlContextToolHandler: UrlContextTool,
   context7ToolsHandler: Context7Tools,
   mcpManager: McpClientManager | null,
@@ -96,22 +96,22 @@ async function handleFunctionCalls(
       continue;
     }
 
-    if (functionCall.name === "mcp_text_editor") {
+    if (functionCall.name === "mcp_ast_grep") {
       let responsePayload: Record<string, unknown>;
       try {
         if (!mcpManager) throw new Error("MCP client manager not initialized");
-        const result = await mcpManager.callTool("work-mac__text_editor", functionCall.args as Record<string, unknown>);
+        const result = await mcpManager.callTool("work-mac__ast_grep", functionCall.args as Record<string, unknown>);
 
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
-      const mcpTextEditorToolResultPart = {
-        name: "mcp_text_editor",
+      const mcpAstGrepToolResultPart = {
+        name: "mcp_ast_grep",
         response: responsePayload,
         id: functionCall.id,
       };
-      parts.push({ functionResponse: mcpTextEditorToolResultPart });
+      parts.push({ functionResponse: mcpAstGrepToolResultPart });
       continue;
     }
 
@@ -133,21 +133,20 @@ async function handleFunctionCalls(
       continue;
     }
 
-    if (functionCall.name === "text_editor") {
+    if (functionCall.name === "ast_grep") {
       let responsePayload: Record<string, unknown>;
       try {
-        const result = await textEditorToolHandler.execute(functionCall.args as Record<string, unknown>);
-
+        const result = await astGrepToolHandler.execute(functionCall.args as Record<string, string>);
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
-      const textEditorToolResultPart = {
-        name: "text_editor",
+      const astGrepToolResultPart = {
+        name: "ast_grep",
         response: responsePayload,
         id: functionCall.id,
       };
-      parts.push({ functionResponse: textEditorToolResultPart });
+      parts.push({ functionResponse: astGrepToolResultPart });
       continue;
     }
 
@@ -282,10 +281,11 @@ async function generateContent(contents: Content[], activeTools: ToolListUnion, 
         thinkingLevel: ThinkingLevel.HIGH,
       },
       safetySettings: [
-        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.OFF },
         { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.OFF },
         { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.OFF },
         { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.OFF },
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.OFF },
+        { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.OFF },
       ],
       toolConfig: {
         includeServerSideToolInvocations: true,
@@ -313,7 +313,7 @@ async function* runQueryLoop(
   inputMessages: Array<Content>,
   group: Pick<RegisteredGroup, "jid" | "folder">,
   bashToolHandler: BashTool,
-  textEditorToolHandler: TextEditorTool,
+  astGrepToolHandler: AstGrepTool,
   urlContextToolHandler: UrlContextTool,
   context7ToolsHandler: Context7Tools,
   mcpManager: McpClientManager | null,
@@ -355,7 +355,7 @@ async function* runQueryLoop(
       if (toolCallDepth > MAX_TOOL_DEPTH) {
         userQueryTurn = generateMaxToolDepthReachedResponse(response.functionCalls, toolCallDepth);
       } else {
-        userQueryTurn = await handleFunctionCalls(response.functionCalls, bashToolHandler, textEditorToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler);
+        userQueryTurn = await handleFunctionCalls(response.functionCalls, bashToolHandler, astGrepToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler);
       }
 
       inputMessages.push(userQueryTurn.turn);
@@ -375,7 +375,7 @@ export async function* query(
   onBeforeGenerate: () => Promise<Array<ContentBlockParam>>,
 ): AsyncGenerator<QueryTurn, void> {
   const bashToolHandler = BashTool.init(os.homedir());
-  const textEditorToolHandler = TextEditorTool.init(os.homedir());
+  const aspGrepToolHandler = createAstGrepTool();
   const urlContextToolHandler = createUrlContextTool();
   const context7ToolsHandler = createContext7Tools();
   const memoryToolsHandler = createMemoryTool(memoriesRepository, group.jid);
@@ -394,7 +394,7 @@ export async function* query(
       });
     }
 
-    yield* runQueryLoop(inputMessages, group, bashToolHandler, textEditorToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler, onBeforeGenerate);
+    yield* runQueryLoop(inputMessages, group, bashToolHandler, aspGrepToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler, onBeforeGenerate);
   } catch (error) {
     if (error instanceof RefusalError) {
       logger.warn(error.message);
