@@ -6,7 +6,7 @@ import { FinishReason, HarmBlockThreshold, HarmCategory, GenerateContentResponse
 import type { Content, FunctionCall, Part, ToolListUnion } from "@google/genai";
 
 import { logger } from "../core/utils/index.js";
-import type { MessageParam, QueryTurn, Message, ContentBlockParam } from "./types.js";
+import type { MessageParam, QueryTurn, Message } from "./types.js";
 import { RefusalError } from "./types.js";
 import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
 import ai from "./genai-client.js";
@@ -18,8 +18,10 @@ import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-t
 import { createContext7Tools, type Context7Tools } from "./tools/context7-tools.js";
 import { createMemoryTool, type MemoryTools } from "./tools/memory-tool.js";
 import { createAstGrepTool, type AstGrepTool } from "./tools/ast_grep_tool.js";
+
 export type { ContentBlockParam, MessageParam, Message, QueryTurn } from "./types.js";
 export { RefusalError } from "./types.js";
+export { createPartFromBase64, createPartFromText } from "@google/genai";
 
 const GEMINI_PROMPT = `
 - You are Gemini 3.1 Pro. Kknowledge cutoff: January 2025
@@ -318,7 +320,6 @@ async function* runQueryLoop(
   context7ToolsHandler: Context7Tools,
   mcpManager: McpClientManager | null,
   memoryToolsHandler: MemoryTools,
-  onBeforeGenerate: () => Promise<Array<ContentBlockParam>>,
 ): AsyncGenerator<QueryTurn, void> {
   const activeTools = getActiveTools(group.jid);
   let continueLoop = true;
@@ -326,16 +327,6 @@ async function* runQueryLoop(
   let response!: GenerateContentResponse;
 
   while (continueLoop) {
-    const extraParts = await onBeforeGenerate();
-    if (extraParts.length > 0) {
-      const lastMsg = inputMessages[inputMessages.length - 1];
-      if (lastMsg && lastMsg.role === "user") {
-        lastMsg.parts = (lastMsg.parts || []).concat(extraParts);
-      } else {
-        inputMessages.push({ role: "user", parts: extraParts });
-      }
-    }
-
     response = await generateContent(inputMessages, activeTools, group.folder);
 
     logger.debug({ response }, "Raw response from Gemini API");
@@ -368,12 +359,7 @@ async function* runQueryLoop(
   }
 }
 
-export async function* query(
-  messages: Array<MessageParam>,
-  group: Pick<RegisteredGroup, "jid" | "folder">,
-  memoriesRepository: MemoriesRepository,
-  onBeforeGenerate: () => Promise<Array<ContentBlockParam>>,
-): AsyncGenerator<QueryTurn, void> {
+export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "jid" | "folder">, memoriesRepository: MemoriesRepository): AsyncGenerator<QueryTurn, void> {
   const bashToolHandler = BashTool.init(os.homedir());
   const aspGrepToolHandler = createAstGrepTool();
   const urlContextToolHandler = createUrlContextTool();
@@ -394,7 +380,7 @@ export async function* query(
       });
     }
 
-    yield* runQueryLoop(inputMessages, group, bashToolHandler, aspGrepToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler, onBeforeGenerate);
+    yield* runQueryLoop(inputMessages, group, bashToolHandler, aspGrepToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler);
   } catch (error) {
     if (error instanceof RefusalError) {
       logger.warn(error.message);

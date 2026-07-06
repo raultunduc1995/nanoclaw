@@ -2,7 +2,7 @@
 import fs from "fs";
 import path from "path";
 import { Temporal } from "@js-temporal/polyfill";
-import { query, type ContentBlockParam, RefusalError, type QueryTurn, type MessageParam } from "../google-genai/index.js";
+import { query, type ContentBlockParam, RefusalError, type QueryTurn, type MessageParam, createPartFromBase64, createPartFromText } from "../google-genai/index.js";
 import { logger, TIMEZONE, GROUPS_DIR } from "../core/utils/index.js";
 import type { GeminiAgentInput } from "./types.js";
 import type { HistoryEntry, RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
@@ -26,7 +26,6 @@ interface GeminiAgentDeps {
   appendHistory: (jid: string, seq: number, entry: HistoryEntry) => Promise<void>;
   deleteHistoryFrom: (jid: string, fromSeq: number) => Promise<void>;
   clearHistory: (jid: string) => Promise<void>;
-  pullExtraInputs: (jid: string) => Array<GeminiAgentInput>;
 }
 
 export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
@@ -76,27 +75,17 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const rollbackLength = history.length;
 
     const parts: Array<ContentBlockParam> = [];
-    if (input.kind === "image" || input.kind === "video") parts.push({ inlineData: input.inlineData });
-    if (input.prompt.length > 0) parts.push({ text: wrapMessage(input.userName, input.prompt) });
+    if (input.kind === "image" || input.kind === "video") parts.push(createPartFromBase64(input.inlineData.data, input.inlineData.mimeType));
+    if (input.prompt.length > 0) parts.push(createPartFromText(wrapMessage(input.userName, input.prompt)));
     if (parts.length === 0) return null;
 
     appendToHistory(chatJid, history, { role: "user", content: parts });
 
     const partsHistory = history.map((h): MessageParam => ({ role: h.role, parts: h.content }));
 
-    const onBeforeGenerate = async (): Promise<Array<ContentBlockParam>> => {
-      const extraInputs = deps.pullExtraInputs(chatJid);
-      const extraParts: Array<ContentBlockParam> = [];
-      for (const input of extraInputs) {
-        if ((input.kind === "image" || input.kind === "video") && input.inlineData) extraParts.push({ inlineData: input.inlineData });
-        if (input.prompt.length > 0) extraParts.push({ text: wrapMessage(input.userName, input.prompt) });
-      }
-      return extraParts;
-    };
-
     let queryTurn: QueryTurn | null = null;
     try {
-      for await (const response of query(partsHistory, input.group, deps.memoriesRepository, onBeforeGenerate)) {
+      for await (const response of query(partsHistory, input.group, deps.memoriesRepository)) {
         await handleResponse(chatJid, history, response);
         queryTurn = response;
       }

@@ -9,8 +9,7 @@ let groupsRepo: GroupsRepository;
 let channelsRegistry: ChannelsRegistry;
 let geminiAgent: GeminiAgent;
 
-const messagePipe = new Map<string, Array<{ message: InboundMessage; group: Pick<RegisteredGroup, "jid" | "folder"> }>>();
-const activeRuns = new Map<string, boolean>();
+const activeRuns = new Map<string, Promise<void>>();
 
 const initMain = async () => {
   channelsRegistry = createChannelsRegistry();
@@ -52,18 +51,6 @@ const initMain = async () => {
     appendHistory: historyRepo.append,
     deleteHistoryFrom: historyRepo.deleteFrom,
     clearHistory: historyRepo.clear,
-    pullExtraInputs: (jid: string) => {
-      const inputs = messagePipe.get(jid) || [];
-      messagePipe.set(jid, []);
-      return inputs.map(
-        ({ message, group }): GeminiAgentInput =>
-          message.kind === "text"
-            ? { kind: "text", userName: message.userName, prompt: message.prompt, group }
-            : message.kind === "image"
-              ? { kind: "image", userName: message.userName, prompt: message.prompt, inlineData: { data: message.imageBase64, mimeType: message.imageMimeType }, group }
-              : { kind: "video", userName: message.userName, prompt: message.prompt, inlineData: { data: message.videoBase64, mimeType: message.videoMimeType }, group },
-      );
-    },
   });
 };
 
@@ -78,30 +65,14 @@ const registerCleanupHandlers = () => {
   process.on("SIGINT", () => shutdown("SIGINT"));
 };
 
-const runAgentLoop = async (chatJid: string) => {
-  if (activeRuns.get(chatJid)) return;
-  activeRuns.set(chatJid, true);
-
-  try {
-    while (true) {
-      const inputs = messagePipe.get(chatJid) || [];
-      if (inputs.length === 0) break;
-      const { message: inputMsg, group: inputGroup } = inputs[0];
-      messagePipe.set(chatJid, inputs.slice(1));
-
-      const initialInput: GeminiAgentInput =
-        inputMsg.kind === "text"
-          ? { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group: inputGroup }
-          : inputMsg.kind === "image"
-            ? { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.imageBase64, mimeType: inputMsg.imageMimeType }, group: inputGroup }
-            : { kind: "video", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.videoBase64, mimeType: inputMsg.videoMimeType }, group: inputGroup };
-      await geminiAgent.runQuery(initialInput);
-    }
-  } catch (err) {
-    logger.error({ chatJid, err }, "Error running agent loop");
-  } finally {
-    activeRuns.delete(chatJid);
-  }
+const runAgentLoop = async (inputMsg: InboundMessage, group: RegisteredGroup) => {
+  const initialInput: GeminiAgentInput =
+    inputMsg.kind === "text"
+      ? { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group }
+      : inputMsg.kind === "image"
+        ? { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.imageBase64, mimeType: inputMsg.imageMimeType }, group }
+        : { kind: "video", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.videoBase64, mimeType: inputMsg.videoMimeType }, group };
+  await geminiAgent.runQuery(initialInput);
 };
 
 const registerChannels = async () => {
@@ -111,11 +82,16 @@ const registerChannels = async () => {
       const chatJid = message.chatJid;
       channelsRegistry.findChannel(chatJid)?.setTyping(chatJid);
 
-      const inputs = messagePipe.get(chatJid) || [];
-      inputs.push({ message, group });
-      messagePipe.set(chatJid, inputs);
-
-      runAgentLoop(chatJid);
+      const previousRun = activeRuns.get(chatJid) || Promise.resolve();
+      const currentRun = previousRun
+        .then(async () => {
+          await runAgentLoop(message, group);
+        })
+        .catch((err) => logger.error({ chatJid, err }, "Error running agent loop in promise chain"))
+        .finally(() => {
+          if (activeRuns.get(chatJid) === currentRun) activeRuns.delete(chatJid);
+        });
+      activeRuns.set(chatJid, currentRun);
     },
     onCommand: async (command, group) => {
       if (command === "compact") {
