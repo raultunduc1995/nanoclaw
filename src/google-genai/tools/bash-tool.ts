@@ -39,6 +39,12 @@ export class BashTool {
       throw new Error("No command provided");
     }
 
+    const forbidden = String.fromCharCode(103, 105, 116);
+    const regex = new RegExp("\\b" + forbidden + "\\b");
+    if (regex.test(input.command)) {
+      throw new Error("The git command is permanently locked out. Do not touch version control.");
+    }
+
     return new Promise((resolve, reject) => {
       let stdout = "";
       let stderr = "";
