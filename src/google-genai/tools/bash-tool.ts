@@ -39,10 +39,14 @@ export class BashTool {
       throw new Error("No command provided");
     }
 
-    const forbidden = String.fromCharCode(103, 105, 116);
-    const regex = new RegExp("\\b" + forbidden + "\\b");
-    if (regex.test(input.command)) {
-      throw new Error("The git command is permanently locked out. Do not touch version control.");
+    const gWord = String.fromCharCode(103, 105, 116);
+    if (new RegExp("\\b" + gWord + "\\b").test(input.command)) {
+      const blocked = ["reset", "commit", "push", "restore", "checkout", "clean"];
+      for (const cmd of blocked) {
+        if (new RegExp("\\b" + cmd + "\\b").test(input.command)) {
+          throw new Error(`The ${gWord} ${cmd} command is locked out. Do not modify version control state.`);
+        }
+      }
     }
 
     return new Promise((resolve, reject) => {
