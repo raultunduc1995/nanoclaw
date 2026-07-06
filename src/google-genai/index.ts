@@ -299,6 +299,20 @@ async function generateContent(contents: Content[], activeTools: ToolListUnion, 
   });
 }
 
+function generateToolStopResponse(functionCalls: FunctionCall[], group: Pick<RegisteredGroup, "jid" | "folder">): QueryTurn {
+  logger.warn({ jid: group.jid }, "Tool execution intercepted by /stop command");
+  const parts: Part[] = functionCalls.map((fc) => ({
+    functionResponse: {
+      name: fc.name,
+      response: {
+        result: "STOP! The user wants you to stop the tools calling because it has something to say. Ask the user what he needs",
+      },
+      id: fc.id,
+    },
+  }));
+  return { role: "user", turn: { role: "user", parts } };
+}
+
 function generateMaxToolDepthReachedResponse(functionCalls: FunctionCall[], toolCallDepth: number): QueryTurn {
   logger.warn({ toolCallDepth, MAX_TOOL_DEPTH }, "Maximum tool call chain depth exceeded, returning error blocks to Gemini");
   const parts: Part[] = functionCalls.map((fc) => ({
@@ -310,7 +324,7 @@ function generateMaxToolDepthReachedResponse(functionCalls: FunctionCall[], tool
       id: fc.id,
     },
   }));
-  return { role: "user", turn: { role: "user", parts } } as QueryTurn;
+  return { role: "user", turn: { role: "user", parts } };
 }
 
 async function* runQueryLoop(
@@ -347,17 +361,7 @@ async function* runQueryLoop(
 
       if (interruptedGroups.has(group.jid)) {
         interruptedGroups.delete(group.jid);
-        logger.warn({ jid: group.jid }, "Tool execution intercepted by /stop command");
-        const parts: Part[] = response.functionCalls.map((fc) => ({
-          functionResponse: {
-            name: fc.name,
-            response: {
-              result: "STOP! The user wants you to stop the tools calling because it has something to say. Ask the user what he needs",
-            },
-            id: fc.id,
-          },
-        }));
-        userQueryTurn = { role: "user", turn: { role: "user", parts } };
+        userQueryTurn = generateToolStopResponse(response.functionCalls, group);
       } else if (toolCallDepth > MAX_TOOL_DEPTH) {
         userQueryTurn = generateMaxToolDepthReachedResponse(response.functionCalls, toolCallDepth);
       } else {
