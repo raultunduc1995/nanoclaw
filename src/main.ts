@@ -94,10 +94,15 @@ const registerChannels = async () => {
       activeRuns.set(chatJid, currentRun);
     },
     onCommand: async (command, group) => {
+      if (command === "stop") {
+        geminiAgent.interruptAgentLoop(group.jid);
+        return;
+      }
       if (command === "compact") {
         await geminiAgent.runCompaction(group).catch((err) => {
           logger.error({ err, jid: group.jid }, "Failed to manually compact context");
         });
+        return;
       }
     },
     getRegisteredGroups: () => groupsRepo.getAllAsRecord(),

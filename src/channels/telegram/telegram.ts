@@ -52,6 +52,18 @@ export class TelegramChannel implements Channel {
       this.opts.onCommand("compact", group);
     });
 
+    this.bot.command("stop", async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.getRegisteredGroups()[chatJid];
+      if (!group) {
+        logger.warn({ chatJid }, "Message from unregistered Telegram chat");
+        return;
+      }
+
+      await ctx.reply("🛑 Task queue cleared. Any pending tasks have been aborted.", { parse_mode: "Markdown" });
+      this.opts.onCommand("stop", group);
+    });
+
     this.bot.on("message:text", async (ctx) => {
       if (ctx.message.text.startsWith("/")) return;
 

@@ -23,6 +23,8 @@ export type { ContentBlockParam, MessageParam, Message, QueryTurn } from "./type
 export { RefusalError } from "./types.js";
 export { createPartFromBase64, createPartFromText } from "@google/genai";
 
+export const interruptedGroups = new Set<string>();
+
 const GEMINI_PROMPT = `
 - You are Gemini 3.1 Pro. Kknowledge cutoff: January 2025
 - Act as a thinking partner and a friend to user.
@@ -343,7 +345,20 @@ async function* runQueryLoop(
       toolCallDepth++;
       let userQueryTurn: QueryTurn;
 
-      if (toolCallDepth > MAX_TOOL_DEPTH) {
+      if (interruptedGroups.has(group.jid)) {
+        interruptedGroups.delete(group.jid);
+        logger.warn({ jid: group.jid }, "Tool execution intercepted by /stop command");
+        const parts: Part[] = response.functionCalls.map((fc) => ({
+          functionResponse: {
+            name: fc.name,
+            response: {
+              result: "STOP! The user wants you to stop the tools calling because it has something to say. Ask the user what he needs",
+            },
+            id: fc.id,
+          },
+        }));
+        userQueryTurn = { role: "user", turn: { role: "user", parts } };
+      } else if (toolCallDepth > MAX_TOOL_DEPTH) {
         userQueryTurn = generateMaxToolDepthReachedResponse(response.functionCalls, toolCallDepth);
       } else {
         userQueryTurn = await handleFunctionCalls(response.functionCalls, bashToolHandler, astGrepToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler);
@@ -393,4 +408,8 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
       await mcpManager.close();
     }
   }
+}
+
+export function interruptAgentLoop(jid: string) {
+  interruptedGroups.add(jid);
 }

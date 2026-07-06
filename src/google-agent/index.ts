@@ -2,7 +2,7 @@
 import fs from "fs";
 import path from "path";
 import { Temporal } from "@js-temporal/polyfill";
-import { query, type ContentBlockParam, RefusalError, type QueryTurn, type MessageParam, createPartFromBase64, createPartFromText } from "../google-genai/index.js";
+import { query, type ContentBlockParam, RefusalError, type QueryTurn, type MessageParam, createPartFromBase64, createPartFromText, interruptAgentLoop } from "../google-genai/index.js";
 import { logger, TIMEZONE, GROUPS_DIR } from "../core/utils/index.js";
 import type { GeminiAgentInput } from "./types.js";
 import type { HistoryEntry, RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
@@ -12,6 +12,7 @@ export type { GeminiAgentInput } from "./types.js";
 export interface GeminiAgent {
   runCompaction: (group: Pick<RegisteredGroup, "jid" | "folder">) => Promise<void>;
   runQuery: (input: GeminiAgentInput) => Promise<void>;
+  interruptAgentLoop: (jid: string) => void;
 }
 
 const formatDateTime = (): string => Temporal.Now.zonedDateTimeISO(TIMEZONE).toPlainDateTime().toString({ fractionalSecondDigits: 0 });
@@ -169,5 +170,6 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
   return {
     runQuery,
     runCompaction,
+    interruptAgentLoop,
   };
 };
