@@ -5,6 +5,7 @@ export interface GroupRow {
   name: string;
   folder: string;
   added_at: string;
+  temperature: number;
 }
 
 export interface GroupsLocalResource {
@@ -20,8 +21,8 @@ export const createGroupsLocalResource = (db: Database): GroupsLocalResource => 
   },
 
   set: async (jid, group) => {
-    const stmt = await db.prepare("INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at) VALUES (?, ?, ?, ?)");
-    await stmt.run(jid, group.name, group.folder, group.added_at);
+    const stmt = await db.prepare("INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, temperature) VALUES (?, ?, ?, ?, ?)");
+    await stmt.run(jid, group.name, group.folder, group.added_at, group.temperature);
   },
 
   getAll: async () => {

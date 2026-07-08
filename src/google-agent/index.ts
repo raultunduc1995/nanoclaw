@@ -10,7 +10,7 @@ import type { HistoryEntry, RegisteredGroup, MemoriesRepository } from "../core/
 export type { GeminiAgentInput } from "./types.js";
 
 export interface GeminiAgent {
-  runCompaction: (group: Pick<RegisteredGroup, "jid" | "folder">) => Promise<void>;
+  runCompaction: (group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">) => Promise<void>;
   runQuery: (input: GeminiAgentInput) => Promise<void>;
   interruptAgentLoop: (jid: string) => void;
 }
@@ -98,7 +98,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     return queryTurn;
   };
 
-  const injectContextMd = async (group: Pick<RegisteredGroup, "jid" | "folder">) => {
+  const injectContextMd = async (group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">) => {
     const chatJid: string = group.jid;
     const history = await deps.loadHistory(chatJid);
     if (history.length > 0) return;
@@ -121,7 +121,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     }
   };
 
-  const runCompaction = async (group: Pick<RegisteredGroup, "jid" | "folder">) => {
+  const runCompaction = async (group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">) => {
     const chatJid: string = group.jid;
     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 

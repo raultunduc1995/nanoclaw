@@ -272,14 +272,14 @@ function getActiveTools(jid: string) {
   return [{ functionDeclarations: activeDeclarations }, { googleSearch: {} }];
 }
 
-async function generateContent(contents: Content[], activeTools: ToolListUnion, groupFolder: string): Promise<GenerateContentResponse> {
+async function generateContent(contents: Content[], activeTools: ToolListUnion, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): Promise<GenerateContentResponse> {
   return ai.models.generateContent({
     model: "gemini-3.1-pro-preview",
     contents,
     config: {
       systemInstruction: `
         ${GEMINI_PROMPT}
-        - Your dedicated workspace directory is located at '${path.resolve(GROUPS_DIR, groupFolder)}'. You are authorized to use your file-writing tools to modify the 'context.md' file here to update core relational and style preferences.`,
+        - Your dedicated workspace directory is located at '${path.resolve(GROUPS_DIR, group.folder)}'. You are authorized to use your file-writing tools to modify the 'context.md' file here to update core relational and style preferences.`,
       thinkingConfig: {
         includeThoughts: false,
         thinkingLevel: ThinkingLevel.HIGH,
@@ -295,11 +295,12 @@ async function generateContent(contents: Content[], activeTools: ToolListUnion, 
         includeServerSideToolInvocations: true,
       },
       tools: activeTools,
+      temperature: group.temperature,
     },
   });
 }
 
-function generateToolStopResponse(functionCalls: FunctionCall[], group: Pick<RegisteredGroup, "jid" | "folder">): QueryTurn {
+function generateToolStopResponse(functionCalls: FunctionCall[], group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): QueryTurn {
   logger.warn({ jid: group.jid }, "Tool execution intercepted by /stop command");
   const parts: Part[] = functionCalls.map((fc) => ({
     functionResponse: {
@@ -329,7 +330,7 @@ function generateMaxToolDepthReachedResponse(functionCalls: FunctionCall[], tool
 
 async function* runQueryLoop(
   inputMessages: Array<Content>,
-  group: Pick<RegisteredGroup, "jid" | "folder">,
+  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">,
   bashToolHandler: BashTool,
   astGrepToolHandler: AstGrepTool,
   urlContextToolHandler: UrlContextTool,
@@ -343,7 +344,7 @@ async function* runQueryLoop(
   let response!: GenerateContentResponse;
 
   while (continueLoop) {
-    response = await generateContent(inputMessages, activeTools, group.folder);
+    response = await generateContent(inputMessages, activeTools, group);
 
     logger.debug({ response }, "Raw response from Gemini API");
 
@@ -378,7 +379,7 @@ async function* runQueryLoop(
   }
 }
 
-export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "jid" | "folder">, memoriesRepository: MemoriesRepository): AsyncGenerator<QueryTurn, void> {
+export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">, memoriesRepository: MemoriesRepository): AsyncGenerator<QueryTurn, void> {
   const bashToolHandler = BashTool.init(os.homedir());
   const aspGrepToolHandler = createAstGrepTool();
   const urlContextToolHandler = createUrlContextTool();

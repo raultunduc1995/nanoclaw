@@ -12,6 +12,7 @@ export interface RegisteredGroup {
   name: string;
   folder: string;
   addedAt: string;
+  temperature: number;
 }
 
 export interface GroupsRepository {
@@ -19,6 +20,7 @@ export interface GroupsRepository {
   getAllJids: () => Set<string>;
   getByJid: (jid: string) => RegisteredGroup | undefined;
   register: (jid: string, group: Omit<RegisteredGroup, "jid">) => Promise<void>;
+  updateGroup: (jid: string, group: RegisteredGroup) => Promise<void>;
 }
 
 export const createGroupsRepository = async (resource: GroupsLocalResource): Promise<GroupsRepository> => {
@@ -41,6 +43,9 @@ export const createGroupsRepository = async (resource: GroupsLocalResource): Pro
       await saveGroup(jid, { ...group, jid });
       createGroupDirectory(groupDir);
     },
+    updateGroup: async (jid, group) => {
+      await saveGroup(jid, group);
+    },
   };
 };
 
@@ -49,6 +54,7 @@ const toRegisteredGroup = (row: GroupRow): RegisteredGroup => ({
   name: row.name,
   folder: row.folder,
   addedAt: row.added_at,
+  temperature: row.temperature,
 });
 
 const toGroupRow = (jid: string, group: RegisteredGroup): GroupRow => ({
@@ -56,6 +62,7 @@ const toGroupRow = (jid: string, group: RegisteredGroup): GroupRow => ({
   name: group.name,
   folder: group.folder,
   added_at: group.addedAt,
+  temperature: group.temperature,
 });
 
 function resolveGroupFolderPath(folder: string): string {

@@ -4,7 +4,7 @@ import { RegisteredGroup } from "../core/repositories/groups-repository.js";
 interface GeminiAgentInputBase {
   userName: string;
   prompt: string;
-  group: Pick<RegisteredGroup, "jid" | "folder">;
+  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">;
 }
 interface GeminiAgentTextInput extends GeminiAgentInputBase {
   kind: "text";

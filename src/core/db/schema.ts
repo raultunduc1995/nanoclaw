@@ -6,7 +6,8 @@ export const createSchema = async (database: Database): Promise<void> => {
       jid TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       folder TEXT NOT NULL UNIQUE,
-      added_at TEXT NOT NULL
+      added_at TEXT NOT NULL,
+      temperature REAL DEFAULT 1.0
     );
 
     CREATE TABLE IF NOT EXISTS history (
