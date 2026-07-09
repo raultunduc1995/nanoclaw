@@ -1,10 +1,7 @@
+import { MessageParam } from "../../google-genai/index.js";
 import type { HistoryLocalResource, HistoryRow } from "../db/index.js";
-import { ContentBlockParam } from "../../google-genai/index.js";
 
-export interface HistoryEntry {
-  role: "user" | "model";
-  content: Array<ContentBlockParam>;
-}
+export type HistoryEntry = MessageParam;
 
 export interface HistoryRepository {
   load: (jid: string) => Promise<HistoryEntry[]>;
@@ -16,22 +13,14 @@ export interface HistoryRepository {
 export const createHistoryRepository = (resource: HistoryLocalResource): HistoryRepository => ({
   load: async (jid) => {
     const rows = await resource.getAll(jid);
-    return rows.map((row: HistoryRow) => {
-      if (row.role === "model") {
-        return {
-          role: "model",
-          content: JSON.parse(row.content),
-        } as HistoryEntry;
-      }
-      return {
-        role: "user",
-        content: JSON.parse(row.content),
-      } as HistoryEntry;
-    });
+    return rows.map((row: HistoryRow) => ({
+      role: row.role,
+      parts: JSON.parse(row.content),
+    }));
   },
 
   append: async (jid, seq, entry) => {
-    await resource.append(jid, seq, entry.role, JSON.stringify(entry.content));
+    await resource.append(jid, seq, entry.role!, JSON.stringify(entry.parts));
   },
 
   deleteFrom: async (jid, fromSeq) => {

@@ -2,10 +2,11 @@
 import fs from "fs";
 import path from "path";
 import { Temporal } from "@js-temporal/polyfill";
-import { query, type ContentBlockParam, RefusalError, type QueryTurn, type MessageParam, createPartFromBase64, createPartFromText, interruptAgentLoop } from "../google-genai/index.js";
+import { query, RefusalError, type QueryTurn, type MessageParam, createPartFromBase64, createPartFromText, interruptAgentLoop } from "../google-genai/index.js";
 import { logger, TIMEZONE, GROUPS_DIR } from "../core/utils/index.js";
 import type { GeminiAgentInput } from "./types.js";
 import type { HistoryEntry, RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
+import { Content } from "@google/genai";
 
 export type { GeminiAgentInput } from "./types.js";
 
@@ -34,30 +35,34 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
   const appendToHistory = async (chatJid: string, history: Array<HistoryEntry>, entry: HistoryEntry) => {
     history.push(entry);
-    await deps.appendHistory(chatJid, history.length - 1, entry);
+    await deps.appendHistory(chatJid, history.length, entry);
   };
 
   const handleResponse = async (chatJid: string, history: Array<HistoryEntry>, response: QueryTurn) => {
-    const { role, turn } = response;
-    if (role === "user") {
-      await appendToHistory(chatJid, history, { role: turn.role, content: turn.parts });
+    if ("role" in response && response.role === "user") {
+      await appendToHistory(chatJid, history, response);
       return;
     }
 
-    const parts: Array<ContentBlockParam> = [];
-    let message = "";
-    // Clean structural filtering matching your tools-free schemas
-    for (const part of turn.parts) {
-      if (part.thought && part.text && part.text.length > 0) {
-        await onOutput({ chatJid, message: `Gemini thought:\n${part.text}\n` });
-        continue;
-      }
-      if (part.text && part.text.length > 0) message += part.text;
-      parts.push(part);
-    }
+    if ("candidates" in response && response.candidates) {
+      if (response.candidates.length == 0) return;
 
-    await appendToHistory(chatJid, history, { role: "model", content: parts });
-    if (message.length > 0) await onOutput({ chatJid, message });
+      const candidate = response.candidates[0];
+      if (!candidate.content || !candidate.content.parts) return;
+
+      const content = { ...candidate.content };
+      await appendToHistory(chatJid, history, content);
+
+      let outputText = "";
+      for (const part of candidate.content.parts) {
+        if (part.text && part.text.length > 0) {
+          outputText += part.text;
+        }
+      }
+      if (outputText.length > 0) await onOutput({ chatJid, message: outputText });
+
+      return;
+    }
   };
 
   const handleError = async (chatJid: string, e: unknown) => {
@@ -75,18 +80,26 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const chatJid: string = input.group.jid;
     const rollbackLength = history.length;
 
-    const parts: Array<ContentBlockParam> = [];
-    if (input.kind === "image" || input.kind === "video") parts.push(createPartFromBase64(input.inlineData.data, input.inlineData.mimeType));
-    if (input.prompt.length > 0) parts.push(createPartFromText(wrapMessage(input.userName, input.prompt)));
-    if (parts.length === 0) return null;
+    let userContent: Content = { role: "user", parts: [] };
+    if (input.kind === "image" || input.kind === "video") {
+      userContent = {
+        ...userContent,
+        parts: [...userContent.parts!, createPartFromBase64(input.inlineData.data, input.inlineData.mimeType)],
+      };
+    }
+    if (input.prompt.length > 0) {
+      userContent = {
+        ...userContent,
+        parts: [...userContent.parts!, createPartFromText(wrapMessage(input.userName, input.prompt))],
+      };
+    }
+    if (!userContent.parts || userContent.parts.length === 0) return null;
 
-    appendToHistory(chatJid, history, { role: "user", content: parts });
-
-    const partsHistory = history.map((h): MessageParam => ({ role: h.role, parts: h.content }));
+    appendToHistory(chatJid, history, userContent);
 
     let queryTurn: QueryTurn | null = null;
     try {
-      for await (const response of query(partsHistory, input.group, deps.memoriesRepository)) {
+      for await (const response of query([...history], input.group, deps.memoriesRepository)) {
         await handleResponse(chatJid, history, response);
         queryTurn = response;
       }
@@ -140,10 +153,16 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     await injectContextMd(group);
 
     let summary: string = "";
-    for (const part of queryTurn.turn.parts) {
-      if (part.thought) continue;
-      if (part.text) summary += part.text + "\n\n";
+    if ("candidates" in queryTurn && queryTurn.candidates) {
+      const parts = queryTurn.candidates[0]?.content?.parts || [];
+      summary =
+        parts
+          .filter((p) => !p.thought && p.text)
+          .map((p) => p.text)
+          .join("") || "";
     }
+    if (summary.length === 0) return;
+
     await runInternal(await deps.loadHistory(chatJid), {
       kind: "text",
       userName: "System",
@@ -161,10 +180,11 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const history = await deps.loadHistory(chatJid);
     const queryTurn: QueryTurn | null = await runInternal(history, input);
 
-    if (!(queryTurn && queryTurn.role === "model")) return;
+    if (!(queryTurn && "usageMetadata" in queryTurn)) return;
 
-    await onOutput({ chatJid, message: `Ctx: ${queryTurn.turn.totalTokenCount}` });
-    if (queryTurn.turn.totalTokenCount >= 180_000) await runCompaction(input.group);
+    const totalTokens = queryTurn.usageMetadata!.totalTokenCount ?? 0;
+    await onOutput({ chatJid, message: `Ctx: ${totalTokens}` });
+    if (totalTokens >= 180_000) await runCompaction(input.group);
   };
 
   return {

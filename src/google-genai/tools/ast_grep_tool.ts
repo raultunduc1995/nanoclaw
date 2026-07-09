@@ -1,4 +1,3 @@
-import { BashTool } from "./bash-tool.js";
 import fs from "fs/promises";
 import { randomUUID } from "crypto";
 import { exec } from "child_process";
@@ -74,14 +73,14 @@ export const createAstGrepTool = (): AstGrepTool => {
               } else {
                 return "No matches found.";
               }
-            } catch (err: any) {
+            } catch (error) {
               return `Found matches but failed to parse JSON output. Raw result snippet: ${rawResult.substring(0, 500)}`;
             }
           }
         }
 
         return `Error: Unknown ast-grep command: ${cmd}`;
-      } catch (err: any) {
+      } catch (err) {
         return `Error executing ast-grep: ${err.message}`;
       }
     },

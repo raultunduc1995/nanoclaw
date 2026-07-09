@@ -3,11 +3,9 @@ import os from "os";
 import path from "path";
 
 import { FinishReason, HarmBlockThreshold, HarmCategory, GenerateContentResponse, ThinkingLevel } from "@google/genai";
-import type { Content, FunctionCall, Part, ToolListUnion } from "@google/genai";
+import type { Content, FunctionCall, Part } from "@google/genai";
 
 import { logger } from "../core/utils/index.js";
-import type { MessageParam, QueryTurn, Message } from "./types.js";
-import { RefusalError } from "./types.js";
 import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
 import ai from "./genai-client.js";
 import { functionDeclarations } from "./tools-definitions.js";
@@ -19,8 +17,16 @@ import { createContext7Tools, type Context7Tools } from "./tools/context7-tools.
 import { createMemoryTool, type MemoryTools } from "./tools/memory-tool.js";
 import { createAstGrepTool, type AstGrepTool } from "./tools/ast_grep_tool.js";
 
-export type { ContentBlockParam, MessageParam, Message, QueryTurn } from "./types.js";
-export { RefusalError } from "./types.js";
+export type MessageParam = Content;
+export type Message = Content & { totalTokenCount: number };
+export type QueryTurn = Content | GenerateContentResponse;
+export class RefusalError extends Error {
+  constructor(message = "Gemini refused to process this request due to safety or policy blocks") {
+    super(message);
+    this.name = "RefusalError";
+  }
+}
+
 export { createPartFromBase64, createPartFromText } from "@google/genai";
 
 export const interruptedGroups = new Set<string>();
@@ -47,26 +53,16 @@ const MAX_TOOL_DEPTH = 30;
  * Transforms a raw Gemini API response into your core QueryTurn schema.
  * Throws a RefusalError if the model encountered policy/safety blocks.
  */
-function mapGeminiToModelTurn(response: GenerateContentResponse): QueryTurn {
-  const candidate = response.candidates![0];
+function mapGeminiToModelTurn(response: GenerateContentResponse): GenerateContentResponse {
+  const candidates = response.candidates!;
 
-  // Intercept refusals natively before doing any mapping
-  const finishReason = candidate.finishReason || FinishReason.OTHER;
-  if (finishReason === FinishReason.SAFETY || finishReason === FinishReason.RECITATION) {
-    throw new RefusalError(`Gemini processing halted due to: ${finishReason}`);
-  }
+  candidates.forEach((c) => {
+    if (c.finishReason === FinishReason.SAFETY || c.finishReason === FinishReason.RECITATION) {
+      throw new RefusalError(`Gemini processing halted due to: ${c.finishReason} ${c.finishMessage}`);
+    }
+  });
 
-  const messageTurn = {
-    type: "message",
-    role: "model",
-    parts: candidate.content?.parts || [],
-    totalTokenCount: response.usageMetadata?.totalTokenCount ?? 0,
-  } as Message;
-
-  return {
-    role: "model",
-    turn: messageTurn,
-  } as QueryTurn;
+  return response;
 }
 
 async function handleFunctionCalls(
@@ -77,7 +73,7 @@ async function handleFunctionCalls(
   context7ToolsHandler: Context7Tools,
   mcpManager: McpClientManager | null,
   memoryToolsHandler: MemoryTools,
-): Promise<QueryTurn> {
+): Promise<Content> {
   const parts: Part[] = [];
 
   for (const functionCall of functionCalls) {
@@ -260,19 +256,19 @@ async function handleFunctionCalls(
     }
   }
 
-  return { role: "user", turn: { role: "user", parts: parts } } as QueryTurn;
+  return { role: "user", parts };
 }
 
-function getActiveTools(jid: string) {
-  let activeDeclarations = [...functionDeclarations];
-  if (!ANDROID_JIDS.includes(jid)) {
-    // Exclude remote mcp_ tools for other groups
-    activeDeclarations = activeDeclarations.filter((decl) => !decl.name?.startsWith("mcp_"));
-  }
-  return [{ functionDeclarations: activeDeclarations }, { googleSearch: {} }];
-}
+async function generateContent(contents: Content[], group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): Promise<GenerateContentResponse> {
+  const activeTools = (() => {
+    let activeDeclarations = [...functionDeclarations];
+    if (!ANDROID_JIDS.includes(group.jid)) {
+      // Exclude remote mcp_ tools for other groups
+      activeDeclarations = activeDeclarations.filter((decl) => !decl.name?.startsWith("mcp_"));
+    }
+    return [{ functionDeclarations: activeDeclarations }, { googleSearch: {} }];
+  })();
 
-async function generateContent(contents: Content[], activeTools: ToolListUnion, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): Promise<GenerateContentResponse> {
   return ai.models.generateContent({
     model: "gemini-3.1-pro-preview",
     contents,
@@ -300,7 +296,7 @@ async function generateContent(contents: Content[], activeTools: ToolListUnion, 
   });
 }
 
-function generateToolStopResponse(functionCalls: FunctionCall[], group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): QueryTurn {
+function generateToolStopResponse(functionCalls: FunctionCall[], group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): Content {
   logger.warn({ jid: group.jid }, "Tool execution intercepted by /stop command");
   const parts: Part[] = functionCalls.map((fc) => ({
     functionResponse: {
@@ -311,10 +307,11 @@ function generateToolStopResponse(functionCalls: FunctionCall[], group: Pick<Reg
       id: fc.id,
     },
   }));
-  return { role: "user", turn: { role: "user", parts } };
+
+  return { role: "user", parts };
 }
 
-function generateMaxToolDepthReachedResponse(functionCalls: FunctionCall[], toolCallDepth: number): QueryTurn {
+function generateMaxToolDepthReachedResponse(functionCalls: FunctionCall[], toolCallDepth: number): Content {
   logger.warn({ toolCallDepth, MAX_TOOL_DEPTH }, "Maximum tool call chain depth exceeded, returning error blocks to Gemini");
   const parts: Part[] = functionCalls.map((fc) => ({
     functionResponse: {
@@ -325,7 +322,8 @@ function generateMaxToolDepthReachedResponse(functionCalls: FunctionCall[], tool
       id: fc.id,
     },
   }));
-  return { role: "user", turn: { role: "user", parts } };
+
+  return { role: "user", parts };
 }
 
 async function* runQueryLoop(
@@ -338,27 +336,27 @@ async function* runQueryLoop(
   mcpManager: McpClientManager | null,
   memoryToolsHandler: MemoryTools,
 ): AsyncGenerator<QueryTurn, void> {
-  const activeTools = getActiveTools(group.jid);
   let continueLoop = true;
   let toolCallDepth = 0;
   let response!: GenerateContentResponse;
 
   while (continueLoop) {
-    response = await generateContent(inputMessages, activeTools, group);
+    response = await generateContent(inputMessages, group);
 
     logger.debug({ response }, "Raw response from Gemini API");
 
-    const candidate = response.candidates?.[0];
-    if (!candidate || !candidate.content) {
-      throw new Error("Empty content payload returned from Gemini");
-    }
+    const candidates = response.candidates;
+    if (!candidates || candidates.length === 0) throw new Error("Empty content payload returned from Gemini");
+    const firstContent = candidates[0].content;
+    if (!firstContent) throw new Error("Content unavailable");
 
-    inputMessages.push(candidate.content);
+    inputMessages.push(firstContent);
+
     yield mapGeminiToModelTurn(response);
 
     if (response.functionCalls && response.functionCalls.length > 0) {
       toolCallDepth++;
-      let userQueryTurn: QueryTurn;
+      let userQueryTurn: Content;
 
       if (interruptedGroups.has(group.jid)) {
         interruptedGroups.delete(group.jid);
@@ -369,7 +367,8 @@ async function* runQueryLoop(
         userQueryTurn = await handleFunctionCalls(response.functionCalls, bashToolHandler, astGrepToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler);
       }
 
-      inputMessages.push(userQueryTurn.turn);
+      logger.debug({ userQueryTurn }, "User query turn from function calls");
+      inputMessages.push(userQueryTurn);
       yield userQueryTurn;
 
       continueLoop = true;
@@ -387,8 +386,6 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
   const memoryToolsHandler = createMemoryTool(memoriesRepository, group.jid);
   let mcpManager: McpClientManager | null = null;
 
-  const inputMessages: Array<Content> = messages.map((m): Content => ({ role: m.role, parts: m.parts }));
-
   try {
     if (ANDROID_JIDS.includes(group.jid)) {
       mcpManager = new McpClientManager();
@@ -400,7 +397,7 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
       });
     }
 
-    yield* runQueryLoop(inputMessages, group, bashToolHandler, aspGrepToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler);
+    yield* runQueryLoop(messages, group, bashToolHandler, aspGrepToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler);
   } catch (error) {
     if (error instanceof RefusalError) {
       logger.warn(error.message);

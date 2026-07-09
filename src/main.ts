@@ -33,21 +33,7 @@ const initMain = async () => {
         await channel.sendMessage(chatJid, `Error: ${message}`);
       }
     },
-    loadHistory: async function (jid: string): Promise<HistoryEntry[]> {
-      const loaded = await historyRepo.load(jid);
-      return loaded.map((e): HistoryEntry => {
-        if (e.role === "model") {
-          return {
-            role: "model",
-            content: e.content,
-          };
-        }
-        return {
-          role: "user",
-          content: e.content,
-        };
-      });
-    },
+    loadHistory: async (jid: string): Promise<HistoryEntry[]> => await historyRepo.load(jid),
     appendHistory: historyRepo.append,
     deleteHistoryFrom: historyRepo.deleteFrom,
     clearHistory: historyRepo.clear,

@@ -54,7 +54,7 @@ export function toTelegramHTML(input: string): string {
     return stash(`<pre>${escapeHtml(cleanMath.trim())}</pre>`);
   });
 
-  text = text.replace(/(?<!\$)\$(?!\s)([^\$\n]+?)(?<!\s)\$(?!\$)/g, (_, math) => {
+  text = text.replace(/(?<!\$)\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\$)/g, (_, math) => {
     const cleanMath = translateLatexToUnicode(math);
     return stash(`<code>${escapeHtml(cleanMath.trim())}</code>`);
   });
