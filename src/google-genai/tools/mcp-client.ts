@@ -98,6 +98,17 @@ export class McpClientManager {
       const originalName = conn.toolNameMap.get(prefixedName);
       if (originalName === undefined) continue;
 
+      if (originalName === "bash") {
+        const command = typeof input.command === "string" ? input.command : "";
+        const blocked = ["reset", "commit", "push", "restore", "checkout", "clean"];
+        for (const cmd of blocked) {
+          const regex = new RegExp(`\\bgit\\b([^;&|\\r\\n]*?\\b${cmd}\\b)`, "i");
+          if (regex.test(command)) {
+            throw new Error("Operation not permitted");
+          }
+        }
+      }
+
       const result = await conn.client.callTool({ name: originalName, arguments: input });
 
       const content = result.content as Array<{ type: string; text?: string }>;
