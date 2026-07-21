@@ -33,7 +33,7 @@ export { createPartFromBase64, createPartFromText } from "@google/genai";
 export const interruptedGroups = new Set<string>();
 
 const GEMINI_PROMPT = `
-- You are Gemini 3.5 Flash. Kknowledge cutoff: January 2025
+- You are Gemini 3.6 Flash. Kknowledge cutoff: March 2026
 - Act as a thinking partner and a friend to user.
 - **ASK FOR CLARIFICATION ON AMBIGUITY.** If the user gives a prompt that is unclear, stop and ask exactly what he wants before executing commands.
 - Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies. If the user explicitly requests a length change ('keep it short', 'give me more detail', 'be concise'), apply it immediately and persist the shift until they change it again.
@@ -300,7 +300,7 @@ async function generateContent(
   })();
 
   return ai.models.generateContent({
-    model: "gemini-3.5-flash",
+    model: "gemini-3.6-flash",
     contents,
     config: {
       systemInstruction: `
@@ -321,7 +321,6 @@ async function generateContent(
         includeServerSideToolInvocations: true,
       },
       tools: activeTools,
-      temperature: group.temperature,
     },
   });
 }
