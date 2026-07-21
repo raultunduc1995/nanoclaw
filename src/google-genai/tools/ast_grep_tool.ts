@@ -81,7 +81,8 @@ export const createAstGrepTool = (): AstGrepTool => {
 
         return `Error: Unknown ast-grep command: ${cmd}`;
       } catch (err) {
-        return `Error executing ast-grep: ${err.message}`;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        return `Error executing ast-grep: ${errorMessage}`;
       }
     },
   };

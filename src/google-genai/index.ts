@@ -8,10 +8,11 @@ import type { Content, FunctionCall, Part } from "@google/genai";
 import { logger } from "../core/utils/index.js";
 import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
 import ai from "./genai-client.js";
-import { functionDeclarations } from "./tools-definitions.js";
+import { functionDeclarations, workMacFunctionDeclarations } from "./tools-definitions.js";
 import { BashTool } from "./tools/bash-tool.js";
-import { McpClientManager } from "./tools/mcp-client.js";
-import { GROUPS_DIR, MCP_AUTH_SECRET } from "../core/utils/config.js";
+import { SseMcpClientManager } from "./tools/sse-mcp-client.js";
+import { HttpMcpClientManager } from "./tools/http-mcp-client.js";
+import { GROUPS_DIR, MCP_AUTH_SECRET, DEVELOPER_KNOWLEDGE_API_KEY } from "../core/utils/config.js";
 import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-tool.js";
 import { createContext7Tools, type Context7Tools } from "./tools/context7-tools.js";
 import { createMemoryTool, type MemoryTools } from "./tools/memory-tool.js";
@@ -72,17 +73,20 @@ async function handleFunctionCalls(
   astGrepToolHandler: AstGrepTool,
   urlContextToolHandler: UrlContextTool,
   context7ToolsHandler: Context7Tools,
-  mcpManager: McpClientManager | null,
+  sseMcpManager: SseMcpClientManager | null,
+  httpMcpManager: HttpMcpClientManager,
   memoryToolsHandler: MemoryTools,
 ): Promise<Content> {
   const parts: Part[] = [];
 
   for (const functionCall of functionCalls) {
+    if (!functionCall.name) continue;
+
     if (functionCall.name === "mcp_bash") {
       let responsePayload: Record<string, unknown>;
       try {
-        if (!mcpManager) throw new Error("MCP client manager not initialized");
-        const result = await mcpManager.callTool("work-mac__bash", functionCall.args as Record<string, unknown>);
+        if (!sseMcpManager) throw new Error("MCP client manager not initialized");
+        const result = await sseMcpManager.callTool("work-mac__bash", functionCall.args as Record<string, unknown>);
 
         responsePayload = { output: result };
       } catch (error) {
@@ -100,8 +104,8 @@ async function handleFunctionCalls(
     if (functionCall.name === "mcp_ast_grep") {
       let responsePayload: Record<string, unknown>;
       try {
-        if (!mcpManager) throw new Error("MCP client manager not initialized");
-        const result = await mcpManager.callTool("work-mac__ast_grep", functionCall.args as Record<string, unknown>);
+        if (!sseMcpManager) throw new Error("MCP client manager not initialized");
+        const result = await sseMcpManager.callTool("work-mac__ast_grep", functionCall.args as Record<string, unknown>);
 
         responsePayload = { output: result };
       } catch (error) {
@@ -255,17 +259,42 @@ async function handleFunctionCalls(
       });
       continue;
     }
+
+    if (httpMcpManager.handles(functionCall.name)) {
+      let responsePayload: Record<string, unknown>;
+      try {
+        const result = await httpMcpManager.callTool(functionCall.name, functionCall.args as Record<string, unknown>);
+        responsePayload = { output: result };
+      } catch (error) {
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
+      }
+      parts.push({
+        functionResponse: { name: functionCall.name, response: responsePayload, id: functionCall.id },
+      });
+      continue;
+    }
   }
 
   return { role: "user", parts };
 }
 
-async function generateContent(contents: Content[], group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): Promise<GenerateContentResponse> {
+async function generateContent(
+  contents: Content[],
+  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">,
+  sseMcpManager: SseMcpClientManager | null,
+  httpMcpManager: HttpMcpClientManager,
+): Promise<GenerateContentResponse> {
   const activeTools = (() => {
     let activeDeclarations = [...functionDeclarations];
-    if (!ANDROID_JIDS.includes(group.jid)) {
-      // Exclude remote mcp_ tools for other groups
-      activeDeclarations = activeDeclarations.filter((decl) => !decl.name?.startsWith("mcp_"));
+    if (ANDROID_JIDS.includes(group.jid)) {
+      activeDeclarations.push(...workMacFunctionDeclarations);
+    }
+    for (const tool of httpMcpManager.getTools()) {
+      activeDeclarations.push({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.input_schema as any,
+      });
     }
     return [{ functionDeclarations: activeDeclarations }, { googleSearch: {} }];
   })();
@@ -334,7 +363,8 @@ async function* runQueryLoop(
   astGrepToolHandler: AstGrepTool,
   urlContextToolHandler: UrlContextTool,
   context7ToolsHandler: Context7Tools,
-  mcpManager: McpClientManager | null,
+  sseMcpManager: SseMcpClientManager | null,
+  httpMcpManager: HttpMcpClientManager,
   memoryToolsHandler: MemoryTools,
 ): AsyncGenerator<QueryTurn, void> {
   let continueLoop = true;
@@ -342,7 +372,7 @@ async function* runQueryLoop(
   let response!: GenerateContentResponse;
 
   while (continueLoop) {
-    response = await generateContent(inputMessages, group);
+    response = await generateContent(inputMessages, group, sseMcpManager, httpMcpManager);
 
     logger.debug({ response }, "Raw response from Gemini API");
 
@@ -365,7 +395,16 @@ async function* runQueryLoop(
       } else if (toolCallDepth > MAX_TOOL_DEPTH) {
         userQueryTurn = generateMaxToolDepthReachedResponse(response.functionCalls, toolCallDepth);
       } else {
-        userQueryTurn = await handleFunctionCalls(response.functionCalls, bashToolHandler, astGrepToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler);
+        userQueryTurn = await handleFunctionCalls(
+          response.functionCalls,
+          bashToolHandler,
+          astGrepToolHandler,
+          urlContextToolHandler,
+          context7ToolsHandler,
+          sseMcpManager,
+          httpMcpManager,
+          memoryToolsHandler,
+        );
       }
 
       logger.debug({ userQueryTurn }, "User query turn from function calls");
@@ -385,20 +424,29 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
   const urlContextToolHandler = createUrlContextTool();
   const context7ToolsHandler = createContext7Tools();
   const memoryToolsHandler = createMemoryTool(memoriesRepository, group.jid);
-  let mcpManager: McpClientManager | null = null;
+  let sseMcpManager: SseMcpClientManager | null = null;
+  const httpMcpManager: HttpMcpClientManager = new HttpMcpClientManager();
 
   try {
     if (ANDROID_JIDS.includes(group.jid)) {
-      mcpManager = new McpClientManager();
-      await mcpManager.connect({
+      sseMcpManager = new SseMcpClientManager();
+      await sseMcpManager.connect({
         "work-mac": {
           url: process.env.MCP_WORK_MAC_URL || "http://192.168.1.176:3737/sse",
           headers: { "X-Auth": MCP_AUTH_SECRET },
         },
       });
     }
+    await httpMcpManager.connect({
+      "google-developer-knowledge": {
+        url: "https://developerknowledge.googleapis.com/mcp",
+        headers: {
+          "X-Goog-Api-Key": DEVELOPER_KNOWLEDGE_API_KEY,
+        },
+      },
+    });
 
-    yield* runQueryLoop(messages, group, bashToolHandler, aspGrepToolHandler, urlContextToolHandler, context7ToolsHandler, mcpManager, memoryToolsHandler);
+    yield* runQueryLoop(messages, group, bashToolHandler, aspGrepToolHandler, urlContextToolHandler, context7ToolsHandler, sseMcpManager, httpMcpManager, memoryToolsHandler);
   } catch (error) {
     if (error instanceof RefusalError) {
       logger.warn(error.message);
@@ -407,9 +455,8 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
     }
     throw error;
   } finally {
-    if (mcpManager) {
-      await mcpManager.close();
-    }
+    if (sseMcpManager) await sseMcpManager.close().catch(() => {});
+    await httpMcpManager.close().catch(() => {});
   }
 }
 

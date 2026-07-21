@@ -20,83 +20,6 @@ export const functionDeclarations: FunctionDeclaration[] = [
     },
   },
   {
-    name: "mcp_bash",
-    description: "Execute a single bash command string on the remote work-mac server.",
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        command: {
-          type: Type.STRING,
-          description: "The exact bash command line to run on the remote server.",
-        },
-        cwd: {
-          type: Type.STRING,
-          description: "Optional working directory on the remote server.",
-        },
-        timeoutMs: {
-          type: Type.INTEGER,
-          description: "Optional execution timeout in milliseconds.",
-        },
-      },
-      required: ["command"],
-    },
-  },
-  {
-    name: "mcp_ast_grep",
-    description: `Execute structural code search, patching, and code outlining using Abstract Syntax Trees (ast-grep/sg) on the remote work-mac server. EXCLUSIVELY USE FOR FILES THAT CONTAIN CODE (do not use for markdown or plain text).
-Usage & Combinations:
-- rule: Structural search and replace using JSON logic (e.g. pattern, inside, has, not).
-  - You must provide 'language' (e.g., 'typescript', 'kotlin').
-  - 'rule' is a JSON object with conditions. Metavariables: $VAR (single node), $$$VAR (multiple nodes).
-  - 'fix' is an optional string to replace matches.
-  Example rule (JSON): { "pattern": "console.log($$$)", "inside": { "kind": "method_definition" } }
-- outline: Map code structure without reading full files.
-  - Map directory API surface: path: 'dir/', items: 'exports', view: 'names'
-  - Trace dependencies: path: 'dir/', items: 'imports', view: 'signatures'
-  - Map local file structure: path: 'file.ts', items: 'structure', view: 'digest'
-  - Zoom into symbol types: path: 'file.ts', type: 'class,function', view: 'expanded'
-  Example outline args (JSON): { "command": "outline", "path": "src/", "items": "exports", "view": "signatures" }`,
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        command: {
-          type: Type.STRING,
-          description: "The ast-grep command to run.",
-          enum: ["rule", "outline"],
-        },
-        path: {
-          type: Type.STRING,
-          description: "The file or directory path to search/modify on the remote work-mac server.",
-        },
-        language: {
-          type: Type.STRING,
-          description: "The language of the target files (e.g. 'typescript', 'kotlin'). Required for 'rule'.",
-        },
-        rule: {
-          type: Type.OBJECT,
-          description: "The pure JSON object representing the ast-grep rule conditions (e.g. { pattern: '...' }). Required for 'rule'.",
-        },
-        fix: {
-          type: Type.STRING,
-          description: "Optional replacement string for matches found by the rule (used for patching).",
-        },
-        items: {
-          type: Type.STRING,
-          description: "Top-level items to outline. Options: 'structure', 'exports', 'imports', 'all' (used for 'outline').",
-        },
-        view: {
-          type: Type.STRING,
-          description: "Outline detail level. Options: 'names', 'signatures', 'digest', 'expanded' (used for 'outline').",
-        },
-        type: {
-          type: Type.STRING,
-          description: "Comma-separated list of top-level symbol types to filter (e.g. 'class,function') (used for 'outline').",
-        },
-      },
-      required: ["command", "path"],
-    },
-  },
-  {
     name: "fetch_url_context",
     description: "Browse a specific URL and extract targeted information based on custom instructions or questions.",
     parameters: {
@@ -234,6 +157,86 @@ Usage & Combinations:
         path: {
           type: Type.STRING,
           description: "The file or directory path to search/modify.",
+        },
+        language: {
+          type: Type.STRING,
+          description: "The language of the target files (e.g. 'typescript', 'kotlin'). Required for 'rule'.",
+        },
+        rule: {
+          type: Type.OBJECT,
+          description: "The pure JSON object representing the ast-grep rule conditions (e.g. { pattern: '...' }). Required for 'rule'.",
+        },
+        fix: {
+          type: Type.STRING,
+          description: "Optional replacement string for matches found by the rule (used for patching).",
+        },
+        items: {
+          type: Type.STRING,
+          description: "Top-level items to outline. Options: 'structure', 'exports', 'imports', 'all' (used for 'outline').",
+        },
+        view: {
+          type: Type.STRING,
+          description: "Outline detail level. Options: 'names', 'signatures', 'digest', 'expanded' (used for 'outline').",
+        },
+        type: {
+          type: Type.STRING,
+          description: "Comma-separated list of top-level symbol types to filter (e.g. 'class,function') (used for 'outline').",
+        },
+      },
+      required: ["command", "path"],
+    },
+  },
+];
+
+export const workMacFunctionDeclarations: FunctionDeclaration[] = [
+  {
+    name: "mcp_bash",
+    description: "Execute a single bash command string on the remote work-mac server.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        command: {
+          type: Type.STRING,
+          description: "The exact bash command line to run on the remote server.",
+        },
+        cwd: {
+          type: Type.STRING,
+          description: "Optional working directory on the remote server.",
+        },
+        timeoutMs: {
+          type: Type.INTEGER,
+          description: "Optional execution timeout in milliseconds.",
+        },
+      },
+      required: ["command"],
+    },
+  },
+  {
+    name: "mcp_ast_grep",
+    description: `Execute structural code search, patching, and code outlining using Abstract Syntax Trees (ast-grep/sg) on the remote work-mac server. EXCLUSIVELY USE FOR FILES THAT CONTAIN CODE (do not use for markdown or plain text).
+Usage & Combinations:
+- rule: Structural search and replace using JSON logic (e.g. pattern, inside, has, not).
+  - You must provide 'language' (e.g., 'typescript', 'kotlin').
+  - 'rule' is a JSON object with conditions. Metavariables: $VAR (single node), $$$VAR (multiple nodes).
+  - 'fix' is an optional string to replace matches.
+  Example rule (JSON): { "pattern": "console.log($$$)", "inside": { "kind": "method_definition" } }
+- outline: Map code structure without reading full files.
+  - Map directory API surface: path: 'dir/', items: 'exports', view: 'names'
+  - Trace dependencies: path: 'dir/', items: 'imports', view: 'signatures'
+  - Map local file structure: path: 'file.ts', items: 'structure', view: 'digest'
+  - Zoom into symbol types: path: 'file.ts', type: 'class,function', view: 'expanded'
+  Example outline args (JSON): { "command": "outline", "path": "src/", "items": "exports", "view": "signatures" }`,
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        command: {
+          type: Type.STRING,
+          description: "The ast-grep command to run.",
+          enum: ["rule", "outline"],
+        },
+        path: {
+          type: Type.STRING,
+          description: "The file or directory path to search/modify on the remote work-mac server.",
         },
         language: {
           type: Type.STRING,

@@ -29,7 +29,7 @@ interface McpConnection {
   serverName: string;
 }
 
-export class McpClientManager {
+export class SseMcpClientManager {
   private connections: Map<string, McpConnection> = new Map();
 
   /**
