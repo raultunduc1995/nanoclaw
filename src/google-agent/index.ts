@@ -182,8 +182,18 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
     if (!(queryTurn && "usageMetadata" in queryTurn)) return;
 
-    const totalTokens = queryTurn.usageMetadata!.totalTokenCount ?? 0;
-    await onOutput({ chatJid, message: `Ctx: ${totalTokens}` });
+    const usage = queryTurn.usageMetadata!;
+    const totalTokens = usage.totalTokenCount ?? 0;
+    const cachedTokens = usage.cachedContentTokenCount ?? 0;
+    const uncached = (usage.promptTokenCount ?? 0) - cachedTokens;
+    const output = totalTokens - (usage.promptTokenCount ?? 0);
+    await onOutput({
+      chatJid,
+      message: `Total: ${totalTokens}
+Cached: ${cachedTokens}
+Uncached-Input: ${uncached}
+Output: ${output}`,
+    });
     if (totalTokens >= 180_000) await runCompaction(input.group);
   };
 
