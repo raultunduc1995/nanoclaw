@@ -278,14 +278,9 @@ async function handleFunctionCalls(
   return { role: "user", parts };
 }
 
-async function generateContent(
-  contents: Content[],
-  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">,
-  sseMcpManager: SseMcpClientManager | null,
-  httpMcpManager: HttpMcpClientManager,
-): Promise<GenerateContentResponse> {
+async function generateContent(contents: Content[], group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">, httpMcpManager: HttpMcpClientManager): Promise<GenerateContentResponse> {
   const activeTools = (() => {
-    let activeDeclarations = [...functionDeclarations];
+    const activeDeclarations = [...functionDeclarations];
     if (ANDROID_JIDS.includes(group.jid)) {
       activeDeclarations.push(...workMacFunctionDeclarations);
     }
@@ -371,7 +366,7 @@ async function* runQueryLoop(
   let response!: GenerateContentResponse;
 
   while (continueLoop) {
-    response = await generateContent(inputMessages, group, sseMcpManager, httpMcpManager);
+    response = await generateContent(inputMessages, group, httpMcpManager);
 
     logger.debug({ response }, "Raw response from Gemini API");
 
