@@ -2,7 +2,7 @@
 import fs from "fs";
 import path from "path";
 import { Temporal } from "@js-temporal/polyfill";
-import { query, RefusalError, type QueryTurn, type MessageParam, createPartFromBase64, createPartFromText, interruptAgentLoop } from "../google-genai/index.js";
+import { query, RefusalError, type QueryTurn, createPartFromText, createPartFromUri, uploadMediaFile, interruptAgentLoop } from "../google-genai/index.js";
 import { logger, TIMEZONE, GROUPS_DIR } from "../core/utils/index.js";
 import type { GeminiAgentInput } from "./types.js";
 import type { HistoryEntry, RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
@@ -81,10 +81,11 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const rollbackLength = history.length;
 
     let userContent: Content = { role: "user", parts: [] };
-    if (input.kind === "image" || input.kind === "video") {
+    if (input.kind === "image" || input.kind === "video" || input.kind === "voice" || input.kind === "pdf") {
+      const media = await uploadMediaFile(input.blob, input.mimeType);
       userContent = {
         ...userContent,
-        parts: [...userContent.parts!, createPartFromBase64(input.inlineData.data, input.inlineData.mimeType)],
+        parts: [...userContent.parts!, createPartFromUri(media.uri, media.mimeType)],
       };
     }
     if (input.prompt.length > 0) {
@@ -95,6 +96,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     }
     if (!userContent.parts || userContent.parts.length === 0) return null;
 
+    logger.debug({ userContent }, "Running user query");
     appendToHistory(chatJid, history, userContent);
 
     let queryTurn: QueryTurn | null = null;
@@ -194,7 +196,7 @@ Cached: ${cachedTokens}
 Uncached-Input: ${uncached}
 Output: ${output}`,
     });
-    if (totalTokens >= 180_000) await runCompaction(input.group);
+    if (totalTokens >= 300_000) await runCompaction(input.group);
   };
 
   return {

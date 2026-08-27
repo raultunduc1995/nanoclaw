@@ -56,8 +56,12 @@ const runAgentLoop = async (inputMsg: InboundMessage, group: RegisteredGroup) =>
     inputMsg.kind === "text"
       ? { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group }
       : inputMsg.kind === "image"
-        ? { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.imageBase64, mimeType: inputMsg.imageMimeType }, group }
-        : { kind: "video", userName: inputMsg.userName, prompt: inputMsg.prompt, inlineData: { data: inputMsg.videoBase64, mimeType: inputMsg.videoMimeType }, group };
+        ? { kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, blob: inputMsg.blob, mimeType: inputMsg.mimeType, group }
+        : inputMsg.kind === "video"
+          ? { kind: "video", userName: inputMsg.userName, prompt: inputMsg.prompt, blob: inputMsg.blob, mimeType: inputMsg.mimeType, group }
+          : inputMsg.kind === "voice"
+            ? { kind: "voice", userName: inputMsg.userName, prompt: inputMsg.prompt, blob: inputMsg.blob, mimeType: inputMsg.mimeType, group }
+            : { kind: "pdf", userName: inputMsg.userName, prompt: inputMsg.prompt, blob: inputMsg.blob, mimeType: inputMsg.mimeType, group };
   await geminiAgent.runQuery(initialInput);
 };
 

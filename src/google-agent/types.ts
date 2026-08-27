@@ -1,4 +1,4 @@
-import type { ImageMimeType, VideoMimeType } from "../core/common/index.js";
+import type { ImageMimeType, VideoMimeType, AudioMimeType, PdfMimeType } from "../core/common/index.js";
 import { RegisteredGroup } from "../core/repositories/groups-repository.js";
 
 interface GeminiAgentInputBase {
@@ -11,11 +11,23 @@ interface GeminiAgentTextInput extends GeminiAgentInputBase {
 }
 interface GeminiAgentImageInput extends GeminiAgentInputBase {
   kind: "image";
-  inlineData: { mimeType: ImageMimeType; data: string };
+  blob: Blob;
+  mimeType: ImageMimeType;
 }
 interface GeminiAgentVideoInput extends GeminiAgentInputBase {
   kind: "video";
-  inlineData: { mimeType: VideoMimeType; data: string };
+  blob: Blob;
+  mimeType: VideoMimeType;
+}
+interface GeminiAgentVoiceInput extends GeminiAgentInputBase {
+  kind: "voice";
+  blob: Blob;
+  mimeType: AudioMimeType;
+}
+interface GeminiAgentPdfInput extends GeminiAgentInputBase {
+  kind: "pdf";
+  blob: Blob;
+  mimeType: PdfMimeType;
 }
 
-export type GeminiAgentInput = GeminiAgentTextInput | GeminiAgentImageInput | GeminiAgentVideoInput;
+export type GeminiAgentInput = GeminiAgentTextInput | GeminiAgentImageInput | GeminiAgentVideoInput | GeminiAgentVoiceInput | GeminiAgentPdfInput;

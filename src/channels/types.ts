@@ -1,4 +1,4 @@
-import { ImageMimeType, VideoMimeType } from "../core/common/index.js";
+import { ImageMimeType, VideoMimeType, AudioMimeType, PdfMimeType } from "../core/common/index.js";
 import { RegisteredGroup } from "../core/repositories/index.js";
 
 interface MessageBase {
@@ -14,25 +14,32 @@ interface TextMessage extends MessageBase {
 
 interface ImageMessage extends MessageBase {
   kind: "image";
-  imageBase64: string;
-  imageMimeType: ImageMimeType;
+  blob: Blob;
+  mimeType: ImageMimeType;
 }
 
 interface VideoMessage extends MessageBase {
   kind: "video";
-  videoBase64: string;
-  videoMimeType: VideoMimeType;
+  blob: Blob;
+  mimeType: VideoMimeType;
 }
 
-export type InboundMessage = TextMessage | ImageMessage | VideoMessage;
+interface VoiceMessage extends MessageBase {
+  kind: "voice";
+  blob: Blob;
+  mimeType: AudioMimeType;
+}
+
+interface PdfMessage extends MessageBase {
+  kind: "pdf";
+  blob: Blob;
+  mimeType: PdfMimeType;
+}
+
+export type InboundMessage = TextMessage | ImageMessage | VideoMessage | VoiceMessage | PdfMessage;
 
 export interface ChannelOpts {
   type: "telegram";
-  /**
-   * Callback type that channels use to deliver inbound messages
-   *
-   * @param message
-   */
   onInboundMessage: (message: InboundMessage, group: RegisteredGroup) => void;
   onCommand: (command: "compact" | "stop" | "temp", group: RegisteredGroup, payload?: string) => void;
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
@@ -45,6 +52,5 @@ export interface Channel {
   sendMessage(jid: string, text: string): Promise<void>;
   ownsJid(jid: string): boolean;
   disconnect(): Promise<void>;
-  // Optional: typing indicator. Channels that support it implement it.
   setTyping(jid: string): Promise<void>;
 }

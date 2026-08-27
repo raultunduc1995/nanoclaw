@@ -6,7 +6,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import { TELEGRAM_BOT_TOKEN } from "../../core/utils/config.js";
 import { logger } from "../../core/utils/logger.js";
 import type { Channel, ChannelOpts } from "../types.js";
-import type { VideoMimeType } from "../../core/common/index.js";
+import type { ImageMimeType, VideoMimeType, AudioMimeType, PdfMimeType, MediaMimeType } from "../../core/common/index.js";
 import { toTelegramHTML } from "./telegram-html-converter.js";
 
 export interface TelegramChannelOpts extends ChannelOpts {
@@ -104,15 +104,16 @@ export class TelegramChannel implements Channel {
       const msgId = ctx.message.message_id.toString();
       const content = ctx.message.caption || "";
 
+      const mimeType = "image/jpeg" as ImageMimeType;
       const photos = ctx.message.photo;
       const largest = photos[photos.length - 1];
-      const imageBase64 = await downloadTelegramFileAsBase64(ctx.api, largest.file_id);
-      if (!imageBase64) {
+      const blob = await downloadTelegramFileAsBlob(ctx.api, largest.file_id, mimeType);
+      if (!blob) {
         logger.error({ chatJid, fileId: largest.file_id }, "Failed to download Telegram photo");
         return;
       }
 
-      this.opts.onInboundMessage({ kind: "image", id: msgId, chatJid, userName, prompt: content, imageMimeType: "image/jpeg", imageBase64 }, group);
+      this.opts.onInboundMessage({ kind: "image", id: msgId, chatJid, userName, prompt: content, mimeType, blob }, group);
     });
 
     this.bot.on("message:video", async (ctx) => {
@@ -134,7 +135,7 @@ export class TelegramChannel implements Channel {
         return;
       }
 
-      const mimeType = video.mime_type || "video/mp4";
+      const mimeType = (video.mime_type || "video/mp4") as VideoMimeType;
       const validVideoMimeTypes = ["video/mp4", "video/mpeg", "video/quicktime", "video/webm"];
       if (!validVideoMimeTypes.includes(mimeType)) {
         logger.warn({ chatJid, mimeType }, "Unsupported video mime type received from Telegram");
@@ -142,13 +143,66 @@ export class TelegramChannel implements Channel {
       }
 
       const fileId = video.file_id;
-      const videoBase64 = await downloadTelegramFileAsBase64(ctx.api, fileId);
-      if (!videoBase64) {
+      const blob = await downloadTelegramFileAsBlob(ctx.api, fileId, mimeType);
+      if (!blob) {
         logger.error({ chatJid, fileId }, "Failed to download Telegram video");
         return;
       }
 
-      this.opts.onInboundMessage({ kind: "video", id: msgId, chatJid, userName, prompt: content, videoMimeType: (video.mime_type as VideoMimeType) || "video/mp4", videoBase64 }, group);
+      this.opts.onInboundMessage({ kind: "video", id: msgId, chatJid, userName, prompt: content, mimeType, blob }, group);
+    });
+
+    this.bot.on("message:voice", async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.getRegisteredGroups()[chatJid];
+      if (!group) {
+        logger.warn({ chatJid }, "Message from unregistered Telegram chat");
+        return;
+      }
+
+      const userName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || "Unknown";
+      const msgId = ctx.message.message_id.toString();
+      const content = ctx.message.caption || "";
+      const voice = ctx.message.voice;
+
+      const mimeType = (voice.mime_type || "audio/ogg") as AudioMimeType;
+      const fileId = voice.file_id;
+      const blob = await downloadTelegramFileAsBlob(ctx.api, fileId, mimeType);
+      if (!blob) {
+        logger.error({ chatJid, fileId }, "Failed to download Telegram voice note");
+        return;
+      }
+
+      this.opts.onInboundMessage({ kind: "voice", id: msgId, chatJid, userName, prompt: content, mimeType, blob }, group);
+    });
+
+    this.bot.on("message:document", async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.getRegisteredGroups()[chatJid];
+      if (!group) {
+        logger.warn({ chatJid }, "Message from unregistered Telegram chat");
+        return;
+      }
+
+      const doc = ctx.message.document;
+      const mimeType = doc.mime_type;
+      if (mimeType !== "application/pdf") {
+        logger.warn({ chatJid, mimeType }, "Unsupported document mime type received from Telegram (only PDF supported)");
+        return;
+      }
+
+      const userName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || "Unknown";
+      const msgId = ctx.message.message_id.toString();
+      const content = ctx.message.caption || "";
+      const fileId = doc.file_id;
+
+      const blob = await downloadTelegramFileAsBlob(ctx.api, fileId, mimeType);
+      if (!blob) {
+        logger.error({ chatJid, fileId }, "Failed to download Telegram PDF document");
+        return;
+      }
+
+      this.opts.onInboundMessage({ kind: "pdf", id: msgId, chatJid, userName, prompt: content, mimeType, blob }, group);
     });
 
     // Handle errors gracefully
@@ -207,7 +261,7 @@ export class TelegramChannel implements Channel {
 
 // --- Helpers ---
 
-async function downloadTelegramFileAsBase64(api: Api, fileId: string): Promise<string | undefined> {
+async function downloadTelegramFileAsBlob(api: Api, fileId: string, mimeType: MediaMimeType): Promise<Blob | undefined> {
   try {
     const file = await api.getFile(fileId);
     if (!file.file_path) return undefined;
@@ -224,7 +278,7 @@ async function downloadTelegramFileAsBase64(api: Api, fileId: string): Promise<s
         .on("error", reject);
     });
 
-    return buffer.toString("base64");
+    return new Blob([buffer], { type: mimeType });
   } catch (err) {
     logger.error({ fileId, err }, "Failed to download Telegram file");
     return undefined;
