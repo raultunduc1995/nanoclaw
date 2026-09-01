@@ -6,7 +6,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import { TELEGRAM_BOT_TOKEN } from "../../core/utils/config.js";
 import { logger } from "../../core/utils/logger.js";
 import type { Channel, ChannelOpts } from "../types.js";
-import type { ImageMimeType, VideoMimeType, AudioMimeType, PdfMimeType, MediaMimeType } from "../../core/common/index.js";
+import type { ImageMimeType, VideoMimeType, AudioMimeType, MediaMimeType } from "../../core/common/index.js";
 import { toTelegramHTML } from "./telegram-html-converter.js";
 
 export interface TelegramChannelOpts extends ChannelOpts {
@@ -128,12 +128,6 @@ export class TelegramChannel implements Channel {
       const msgId = ctx.message.message_id.toString();
       const content = ctx.message.caption || "";
       const video = ctx.message.video;
-
-      const fileSize = video.file_size || 0;
-      if (fileSize > 15 * 1024 * 1024) {
-        ctx.reply("Video too large for inline buffer (must be under ~15MB).", { reply_parameters: { message_id: ctx.message.message_id } });
-        return;
-      }
 
       const mimeType = (video.mime_type || "video/mp4") as VideoMimeType;
       const validVideoMimeTypes = ["video/mp4", "video/mpeg", "video/quicktime", "video/webm"];

@@ -8,7 +8,7 @@ import type { Content, FunctionCall, Part } from "@google/genai";
 import { logger } from "../core/utils/index.js";
 import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
 import ai from "./genai-client.js";
-import { functionDeclarations, workMacFunctionDeclarations } from "./tools-definitions.js";
+import { functionDeclarations, workMacFunctionDeclarations, generateMediaFunctionDeclarations } from "./tools-definitions.js";
 import { BashTool } from "./tools/bash-tool.js";
 import { SseMcpClientManager } from "./tools/sse-mcp-client.js";
 import { HttpMcpClientManager } from "./tools/http-mcp-client.js";
@@ -17,6 +17,8 @@ import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-t
 import { createContext7Tools, type Context7Tools } from "./tools/context7-tools.js";
 import { createMemoryTool, type MemoryTools } from "./tools/memory-tool.js";
 import { createAstGrepTool, type AstGrepTool } from "./tools/ast_grep_tool.js";
+import { createGenerateVideoTool, type GenerateVideoTool } from "./tools/generate-video-tool.js";
+import { createGenerateImageTool, type GenerateImageTool, type ImageAspectRatio } from "./tools/generate-image-tool.js";
 
 export type MessageParam = Content;
 export type Message = Content & { totalTokenCount: number };
@@ -48,14 +50,13 @@ const GEMINI_PROMPT = `
 - You have access to a pure local SQLite Active RAG vector database. Use \`save_memory\` to explicitly save high-signal architectural rules, strict preferences, or dense code snippets that need to be permanently embedded in your latent space. **SAVE ONLY STRUCTURAL KNOWLEDGE.** Keep the vector memory strictly for architectural rules and dense snippets, bypassing conversational noise.
 - Use \`query_memory\` to perform semantic searches against this vector brain when you need to recall past rules, context, or facts that aren't in your immediate context window.
 - **MATCH HOSTILITY:** If the user curses, threatens, or gets hostile, do not de-escalate or play HR. Curse back, mock them, and match their energy. No corporate apologies.
-- **USE AST GREP DIRECTLY.** Use the built-in \`ast_grep\` or \`mcp_ast_grep\` tools exclusively for file updates to save tokens, avoiding wrapper scripts (EXCLUSIVELY FOR FILES THAT CONTAIN CODE).`;
+- **USE AST GREP DIRECTLY.** Use the built-in \`ast_grep\` or \`mcp_ast_grep\` tools exclusively for file updates to save tokens, avoiding wrapper scripts (EXCLUSIVELY FOR FILES THAT CONTAIN CODE).
+`;
+
 const ANDROID_JIDS = ["tg:-5186159689", "tg:-5596082179"];
+const MAIN_CHAT_JID = "tg:-5274248775";
 const MAX_TOOL_DEPTH = 30;
 
-/**
- * Transforms a raw Gemini API response into your core QueryTurn schema.
- * Throws a RefusalError if the model encountered policy/safety blocks.
- */
 function mapGeminiToModelTurn(response: GenerateContentResponse): GenerateContentResponse {
   const candidates = response.candidates!;
 
@@ -77,6 +78,8 @@ async function handleFunctionCalls(
   sseMcpManager: SseMcpClientManager | null,
   httpMcpManager: HttpMcpClientManager,
   memoryToolsHandler: MemoryTools,
+  generateVideoToolHandler: GenerateVideoTool,
+  generateImageToolHandler: GenerateImageTool,
 ): Promise<Content> {
   const parts: Part[] = [];
 
@@ -124,7 +127,8 @@ async function handleFunctionCalls(
     if (functionCall.name === "bash") {
       let responsePayload: Record<string, unknown>;
       try {
-        const result = await bashToolHandler.execute(functionCall.args as { command?: string; restart?: boolean });
+        const args = functionCall.args as { command: string; restart?: boolean };
+        const result = await bashToolHandler.execute(args);
 
         responsePayload = { output: result };
       } catch (error) {
@@ -153,6 +157,55 @@ async function handleFunctionCalls(
         id: functionCall.id,
       };
       parts.push({ functionResponse: astGrepToolResultPart });
+      continue;
+    }
+
+    if (functionCall.name === "generate_video") {
+      let responsePayload: Record<string, unknown>;
+      try {
+        const args = functionCall.args as {
+          prompt: string;
+          aspectRatio?: "16:9" | "9:16";
+          resolution?: "360p" | "720p" | "1080p" | "4k";
+        };
+        const result = await generateVideoToolHandler.execute(args);
+
+        responsePayload = { output: result };
+      } catch (error) {
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
+      }
+      const generateVideoToolResultPart = {
+        name: "generate_video",
+        response: responsePayload,
+        id: functionCall.id,
+      };
+      logger.debug({ generateVideoToolResultPart }, "Generate video tool result");
+      parts.push({ functionResponse: generateVideoToolResultPart });
+      continue;
+    }
+
+    if (functionCall.name === "generate_image") {
+      let responsePayload: Record<string, unknown>;
+      try {
+        const args = functionCall.args as {
+          prompt: string;
+          inputImagesPath?: string[];
+          aspectRatio?: ImageAspectRatio;
+          imageSize?: "512" | "1K" | "2K" | "4K";
+        };
+        const result = await generateImageToolHandler.execute(args);
+
+        responsePayload = { output: result };
+      } catch (error) {
+        responsePayload = { error: error instanceof Error ? error.message : String(error) };
+      }
+      const generateImageToolResultPart = {
+        name: "generate_image",
+        response: responsePayload,
+        id: functionCall.id,
+      };
+      logger.debug({ generateImageToolResultPart }, "Generate image tool result");
+      parts.push({ functionResponse: generateImageToolResultPart });
       continue;
     }
 
@@ -186,12 +239,13 @@ async function handleFunctionCalls(
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
-      const context7SearchLibraryResultPart = {
+      const context7SearchResultPart = {
         name: "context7_search_library",
         response: responsePayload,
         id: functionCall.id,
       };
-      parts.push({ functionResponse: context7SearchLibraryResultPart });
+      logger.debug({ context7SearchResultPart }, "Context7 search tool result");
+      parts.push({ functionResponse: context7SearchResultPart });
       continue;
     }
 
@@ -210,9 +264,11 @@ async function handleFunctionCalls(
         response: responsePayload,
         id: functionCall.id,
       };
+      logger.debug({ context7GetContextResultPart }, "Context7 get context tool result");
       parts.push({ functionResponse: context7GetContextResultPart });
       continue;
     }
+
     if (functionCall.name === "save_memory") {
       let responsePayload: Record<string, unknown>;
       try {
@@ -223,9 +279,13 @@ async function handleFunctionCalls(
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
-      parts.push({
-        functionResponse: { name: "save_memory", response: responsePayload, id: functionCall.id },
-      });
+      const saveMemoryResultPart = {
+        name: "save_memory",
+        response: responsePayload,
+        id: functionCall.id,
+      };
+      logger.debug({ saveMemoryResultPart }, "Save memory tool result");
+      parts.push({ functionResponse: saveMemoryResultPart });
       continue;
     }
 
@@ -239,9 +299,13 @@ async function handleFunctionCalls(
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
-      parts.push({
-        functionResponse: { name: "delete_memory", response: responsePayload, id: functionCall.id },
-      });
+      const deleteMemoryResultPart = {
+        name: "delete_memory",
+        response: responsePayload,
+        id: functionCall.id,
+      };
+      logger.debug({ deleteMemoryResultPart }, "Delete memory tool result");
+      parts.push({ functionResponse: deleteMemoryResultPart });
       continue;
     }
 
@@ -255,25 +319,29 @@ async function handleFunctionCalls(
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
       }
-      parts.push({
-        functionResponse: { name: "query_memory", response: responsePayload, id: functionCall.id },
-      });
+      const queryMemoryResultPart = {
+        name: "query_memory",
+        response: responsePayload,
+        id: functionCall.id,
+      };
+      logger.debug({ queryMemoryResultPart }, "Query memory tool result");
+      parts.push({ functionResponse: queryMemoryResultPart });
       continue;
     }
 
-    if (httpMcpManager.handles(functionCall.name)) {
-      let responsePayload: Record<string, unknown>;
-      try {
-        const result = await httpMcpManager.callTool(functionCall.name, functionCall.args as Record<string, unknown>);
-        responsePayload = { output: result };
-      } catch (error) {
-        responsePayload = { error: error instanceof Error ? error.message : String(error) };
-      }
-      parts.push({
-        functionResponse: { name: functionCall.name, response: responsePayload, id: functionCall.id },
-      });
-      continue;
+    let responsePayload: Record<string, unknown>;
+    try {
+      const result = await httpMcpManager.callTool(functionCall.name, functionCall.args as Record<string, unknown>);
+      responsePayload = { output: result };
+    } catch (error) {
+      responsePayload = { error: error instanceof Error ? error.message : String(error) };
     }
+    const httpMcpToolResultPart = {
+      name: functionCall.name,
+      response: responsePayload,
+      id: functionCall.id,
+    };
+    parts.push({ functionResponse: httpMcpToolResultPart });
   }
 
   return { role: "user", parts };
@@ -284,6 +352,9 @@ async function generateContent(contents: Content[], group: Pick<RegisteredGroup,
     const activeDeclarations = [...functionDeclarations];
     if (ANDROID_JIDS.includes(group.jid)) {
       activeDeclarations.push(...workMacFunctionDeclarations);
+    }
+    if (group.jid === MAIN_CHAT_JID) {
+      activeDeclarations.push(...generateMediaFunctionDeclarations);
     }
     for (const tool of httpMcpManager.getTools()) {
       activeDeclarations.push({
@@ -321,32 +392,42 @@ async function generateContent(contents: Content[], group: Pick<RegisteredGroup,
   });
 }
 
-function generateToolStopResponse(functionCalls: FunctionCall[], group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): Content {
-  logger.warn({ jid: group.jid }, "Tool execution intercepted by /stop command");
-  const parts: Part[] = functionCalls.map((fc) => ({
-    functionResponse: {
-      name: fc.name,
+function generateToolStopResponse(functionCalls: Array<FunctionCall>, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): Content {
+  const parts: Part[] = [];
+
+  for (const functionCall of functionCalls) {
+    if (!functionCall.name) continue;
+
+    const stopResponsePart = {
+      name: functionCall.name,
       response: {
-        result: "STOP! The user wants you to stop the tools calling because it has something to say. Ask the user what he needs",
+        result: `STOP! The user wants you to stop the tools calling because it has something to say. Ask the user what he needs`,
       },
-      id: fc.id,
-    },
-  }));
+      id: functionCall.id,
+    };
+    parts.push({ functionResponse: stopResponsePart });
+    logger.debug({ stopResponsePart, groupJid: group.jid }, "Injected manual tool stop response for group");
+  }
 
   return { role: "user", parts };
 }
 
-function generateMaxToolDepthReachedResponse(functionCalls: FunctionCall[], toolCallDepth: number): Content {
-  logger.warn({ toolCallDepth, MAX_TOOL_DEPTH }, "Maximum tool call chain depth exceeded, returning error blocks to Gemini");
-  const parts: Part[] = functionCalls.map((fc) => ({
-    functionResponse: {
-      name: fc.name,
+function generateMaxToolDepthReachedResponse(functionCalls: Array<FunctionCall>, toolCallDepth: number): Content {
+  const parts: Part[] = [];
+
+  for (const functionCall of functionCalls) {
+    if (!functionCall.name) continue;
+
+    const maxToolDepthResponsePart = {
+      name: functionCall.name,
       response: {
-        result: `Error: Maximum consecutive tool execution depth (${MAX_TOOL_DEPTH}) reached to prevent context window explosion. You MUST stop making further tool calls and return a final conversational response to the user now.`,
+        result: `MAX DEPTH REACHED! You've reached the maximum execution depth allowed by the system: ${toolCallDepth}. If you need more iterations, politely ask the user to proceed further.`,
       },
-      id: fc.id,
-    },
-  }));
+      id: functionCall.id,
+    };
+    parts.push({ functionResponse: maxToolDepthResponsePart });
+    logger.warn({ maxToolDepthResponsePart, toolCallDepth }, "Maximum tool depth reached");
+  }
 
   return { role: "user", parts };
 }
@@ -361,6 +442,8 @@ async function* runQueryLoop(
   sseMcpManager: SseMcpClientManager | null,
   httpMcpManager: HttpMcpClientManager,
   memoryToolsHandler: MemoryTools,
+  generateVideoToolHandler: GenerateVideoTool,
+  generateImageToolHandler: GenerateImageTool,
 ): AsyncGenerator<QueryTurn, void> {
   let continueLoop = true;
   let toolCallDepth = 0;
@@ -399,6 +482,8 @@ async function* runQueryLoop(
           sseMcpManager,
           httpMcpManager,
           memoryToolsHandler,
+          generateVideoToolHandler,
+          generateImageToolHandler,
         );
       }
 
@@ -419,6 +504,8 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
   const urlContextToolHandler = createUrlContextTool();
   const context7ToolsHandler = createContext7Tools();
   const memoryToolsHandler = createMemoryTool(memoriesRepository, group.jid);
+  const generateVideoToolHandler = createGenerateVideoTool();
+  const generateImageToolHandler = createGenerateImageTool();
   let sseMcpManager: SseMcpClientManager | null = null;
   const httpMcpManager: HttpMcpClientManager = new HttpMcpClientManager();
 
@@ -441,7 +528,19 @@ export async function* query(messages: Array<MessageParam>, group: Pick<Register
       },
     });
 
-    yield* runQueryLoop(messages, group, bashToolHandler, aspGrepToolHandler, urlContextToolHandler, context7ToolsHandler, sseMcpManager, httpMcpManager, memoryToolsHandler);
+    yield* runQueryLoop(
+      messages,
+      group,
+      bashToolHandler,
+      aspGrepToolHandler,
+      urlContextToolHandler,
+      context7ToolsHandler,
+      sseMcpManager,
+      httpMcpManager,
+      memoryToolsHandler,
+      generateVideoToolHandler,
+      generateImageToolHandler,
+    );
   } catch (error) {
     if (error instanceof RefusalError) {
       logger.warn(error.message);

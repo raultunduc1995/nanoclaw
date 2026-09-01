@@ -267,3 +267,61 @@ Usage & Combinations:
     },
   },
 ];
+
+export const generateMediaFunctionDeclarations: FunctionDeclaration[] = [
+  {
+    name: "generate_video",
+    description: "Generate a video from a detailed text prompt using Gemini Omni and save it locally to disk.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        prompt: {
+          type: Type.STRING,
+          description: "The detailed prompt describing the scene, motion, lighting, and camera movement for the video.",
+        },
+        aspectRatio: {
+          type: Type.STRING,
+          description: "The aspect ratio of the video output (e.g. '16:9', '9:16'). Defaults to '16:9'.",
+          enum: ["16:9", "9:16"],
+        },
+        resolution: {
+          type: Type.STRING,
+          description: "The resolution of the video output (e.g. '360p', '720p', '1080p', '4k'). Defaults to '720p'.",
+          enum: ["360p", "720p", "1080p", "4k"],
+        },
+      },
+      required: ["prompt"],
+    },
+  },
+  {
+    name: "generate_image",
+    description: "Generate an image from a detailed text prompt or edit existing images using Gemini Image and save it locally to disk.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        prompt: {
+          type: Type.STRING,
+          description: "The detailed prompt describing the scene, style, lighting, and composition for the image.",
+        },
+        inputImagesPath: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.STRING,
+          },
+          description: "Optional array of local image file paths to condition or edit.",
+        },
+        aspectRatio: {
+          type: Type.STRING,
+          description: "The aspect ratio of the image output. Defaults to '1:1'.",
+          enum: ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:8", "8:1", "1:4", "4:1"],
+        },
+        imageSize: {
+          type: Type.STRING,
+          description: "The size/resolution of the image output (e.g. '512', '1K', '2K', '4K'). Defaults to '1K'.",
+          enum: ["512", "1K", "2K", "4K"],
+        },
+      },
+      required: ["prompt"],
+    },
+  },
+];

@@ -1,4 +1,3 @@
-import { HarmBlockThreshold, HarmCategory } from "@google/genai";
 import ai from "../genai-client.js";
 import { logger } from "../../core/utils/logger.js";
 
@@ -17,23 +16,16 @@ export const createUrlContextTool = (): UrlContextTool => {
       `;
 
       try {
-        const response = await ai.models.generateContent({
+        const response = await ai.interactions.create({
           model: "gemini-3.7-flash",
-          contents: `URL to browse: ${url}\nTargeted Query/Instructions: ${query}`,
-          config: {
-            systemInstruction,
-            tools: [{ urlContext: {} }],
-            safetySettings: [
-              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.OFF },
-              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.OFF },
-              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.OFF },
-              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.OFF },
-            ],
-          },
+          input: `URL to browse: ${url}\nTargeted Query/Instructions: ${query}`,
+          system_instruction: systemInstruction,
+          tools: [{ type: "url_context" }],
+          store: false,
         });
 
-        logger.debug({ response }, "Received gemini flash lite web-fetch result");
-        return response.text || "No relevant information found matching your query on that page.";
+        logger.debug({ response }, "Received gemini web-fetch result");
+        return response.output_text || "No relevant information found matching your query on that page.";
       } catch (error) {
         return `Error executing url_context: ${error instanceof Error ? error.message : String(error)}`;
       }
