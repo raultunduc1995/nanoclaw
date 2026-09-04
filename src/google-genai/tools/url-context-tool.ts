@@ -1,4 +1,4 @@
-import ai from "../genai-client.js";
+import ai, { GEMINI_MODEL } from "../genai-client.js";
 import { logger } from "../../core/utils/logger.js";
 
 export interface UrlContextTool {
@@ -17,7 +17,7 @@ export const createUrlContextTool = (): UrlContextTool => {
 
       try {
         const response = await ai.interactions.create({
-          model: "gemini-3.7-flash",
+          model: GEMINI_MODEL,
           input: `URL to browse: ${url}\nTargeted Query/Instructions: ${query}`,
           system_instruction: systemInstruction,
           tools: [{ type: "url_context" }],

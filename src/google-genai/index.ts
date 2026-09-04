@@ -7,7 +7,7 @@ import type { Content, FunctionCall, Part } from "@google/genai";
 
 import { logger } from "../core/utils/index.js";
 import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
-import ai from "./genai-client.js";
+import ai, { GEMINI_MODEL } from "./genai-client.js";
 import { functionDeclarations, workMacFunctionDeclarations, generateMediaFunctionDeclarations } from "./tools-definitions.js";
 import { BashTool } from "./tools/bash-tool.js";
 import { SseMcpClientManager } from "./tools/sse-mcp-client.js";
@@ -367,7 +367,7 @@ async function generateContent(contents: Content[], group: Pick<RegisteredGroup,
   })();
 
   return ai.models.generateContent({
-    model: "gemini-3.7-flash",
+    model: GEMINI_MODEL,
     contents,
     config: {
       systemInstruction: `
