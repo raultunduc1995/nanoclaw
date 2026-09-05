@@ -1,8 +1,9 @@
 import { logger } from "./core/utils/index.js";
 import { createChannelsRegistry, type ChannelsRegistry, type TelegramChannelOpts, type InboundMessage } from "./channels/index.js";
 import { initLocalDatabase } from "./core/db/index.js";
-import { createGroupsRepository, createHistoryRepository, createMemoriesRepository, type HistoryEntry, type GroupsRepository, type RegisteredGroup } from "./core/repositories/index.js";
+import { createGroupsRepository, createHistoryRepository, createMemoriesRepository, type GroupsRepository, type RegisteredGroup } from "./core/repositories/index.js";
 // import { startVoiceServer } from "./voice/index.js";
+import { type Step } from "./google-genai/index.js";
 import { createGeminiAgent, type GeminiAgent, type GeminiAgentInput } from "./google-agent/index.js";
 
 let groupsRepo: GroupsRepository;
@@ -33,7 +34,7 @@ const initMain = async () => {
         await channel.sendMessage(chatJid, `Error: ${message}`);
       }
     },
-    loadHistory: async (jid: string): Promise<HistoryEntry[]> => await historyRepo.load(jid),
+    loadHistory: async (jid: string): Promise<Step[]> => await historyRepo.load(jid),
     appendHistory: historyRepo.append,
     deleteHistoryFrom: historyRepo.deleteFrom,
     clearHistory: historyRepo.clear,

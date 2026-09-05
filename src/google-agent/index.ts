@@ -2,11 +2,11 @@
 import fs from "fs";
 import path from "path";
 import { Temporal } from "@js-temporal/polyfill";
-import { query, RefusalError, type QueryTurn, createPartFromText, createPartFromUri, uploadMediaFile, interruptAgentLoop } from "../google-genai/index.js";
+import { query, RefusalError, uploadMediaFile, interruptAgentLoop } from "../google-genai/index.js";
+import type { QueryTurn, Content, Step } from "../google-genai/index.js";
 import { logger, TIMEZONE, GROUPS_DIR } from "../core/utils/index.js";
 import type { GeminiAgentInput } from "./types.js";
-import type { HistoryEntry, RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
-import { Content } from "@google/genai";
+import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
 
 export type { GeminiAgentInput } from "./types.js";
 
@@ -24,8 +24,8 @@ interface GeminiAgentDeps {
   memoriesRepository: MemoriesRepository;
   onOutput: (result: { chatJid: string; message: string }) => Promise<void>;
   onError: (error: { chatJid: string; message: string }) => Promise<void>;
-  loadHistory: (jid: string) => Promise<HistoryEntry[]>;
-  appendHistory: (jid: string, seq: number, entry: HistoryEntry) => Promise<void>;
+  loadHistory: (jid: string) => Promise<Step[]>;
+  appendHistory: (jid: string, seq: number, entry: Step) => Promise<void>;
   deleteHistoryFrom: (jid: string, fromSeq: number) => Promise<void>;
   clearHistory: (jid: string) => Promise<void>;
 }
@@ -33,35 +33,28 @@ interface GeminiAgentDeps {
 export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
   const { onOutput, onError } = deps;
 
-  const appendToHistory = async (chatJid: string, history: Array<HistoryEntry>, entry: HistoryEntry) => {
+  const appendToHistory = async (chatJid: string, history: Array<Step>, entry: Step) => {
     history.push(entry);
     await deps.appendHistory(chatJid, history.length, entry);
   };
 
-  const handleResponse = async (chatJid: string, history: Array<HistoryEntry>, response: QueryTurn) => {
-    if ("role" in response && response.role === "user") {
-      await appendToHistory(chatJid, history, response);
+  const handleResponse = async (chatJid: string, history: Array<Step>, response: QueryTurn) => {
+    if (Array.isArray(response)) {
+      for (const step of response) {
+        await appendToHistory(chatJid, history, step);
+      }
       return;
     }
 
-    if ("candidates" in response && response.candidates) {
-      if (response.candidates.length == 0) return;
-
-      const candidate = response.candidates[0];
-      if (!candidate.content || !candidate.content.parts) return;
-
-      const content = { ...candidate.content };
-      await appendToHistory(chatJid, history, content);
-
-      let outputText = "";
-      for (const part of candidate.content.parts) {
-        if (part.text && part.text.length > 0) {
-          outputText += part.text;
-        }
+    if (response.steps) {
+      for (const step of response.steps) {
+        await appendToHistory(chatJid, history, step);
       }
-      if (outputText.length > 0) await onOutput({ chatJid, message: outputText });
+    }
 
-      return;
+    const outputText = response.output_text?.trim();
+    if (outputText && outputText.length > 0) {
+      await onOutput({ chatJid, message: outputText });
     }
   };
 
@@ -76,28 +69,55 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     await onError({ chatJid, message: errorMessage });
   };
 
-  const runInternal = async (history: Array<HistoryEntry>, input: GeminiAgentInput): Promise<QueryTurn | null> => {
+  const runInternal = async (history: Array<Step>, input: GeminiAgentInput): Promise<QueryTurn | null> => {
     const chatJid: string = input.group.jid;
     const rollbackLength = history.length;
 
-    let userContent: Content = { role: "user", parts: [] };
-    if (input.kind === "image" || input.kind === "video" || input.kind === "voice" || input.kind === "pdf") {
+    const content: Content[] = [];
+    if (input.kind === "image") {
       const media = await uploadMediaFile(input.blob, input.mimeType);
-      userContent = {
-        ...userContent,
-        parts: [...userContent.parts!, createPartFromUri(media.uri, media.mimeType)],
-      };
+      content.push({
+        type: "image",
+        uri: media.uri,
+        mime_type: media.mimeType,
+      });
+    }
+    if (input.kind === "video") {
+      const media = await uploadMediaFile(input.blob, input.mimeType);
+      content.push({
+        type: "video",
+        uri: media.uri,
+        mime_type: media.mimeType,
+      });
+    }
+    if (input.kind === "voice") {
+      const media = await uploadMediaFile(input.blob, input.mimeType);
+      content.push({
+        type: "audio",
+        uri: media.uri,
+        mime_type: media.mimeType,
+      });
+    }
+    if (input.kind === "pdf") {
+      const media = await uploadMediaFile(input.blob, input.mimeType);
+      content.push({
+        type: "document",
+        uri: media.uri,
+        mime_type: media.mimeType,
+      });
     }
     if (input.prompt.length > 0) {
-      userContent = {
-        ...userContent,
-        parts: [...userContent.parts!, createPartFromText(wrapMessage(input.userName, input.prompt))],
-      };
+      content.push({
+        type: "text",
+        text: wrapMessage(input.userName, input.prompt),
+      });
     }
-    if (!userContent.parts || userContent.parts.length === 0) return null;
+    if (content.length === 0) return null;
 
-    logger.debug({ userContent }, "Running user query");
-    appendToHistory(chatJid, history, userContent);
+    const userStep: Step = { type: "user_input", content };
+
+    logger.debug({ userStep }, "Running user query");
+    await appendToHistory(chatJid, history, userStep);
 
     let queryTurn: QueryTurn | null = null;
     try {
@@ -106,8 +126,8 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
         queryTurn = response;
       }
     } catch (e) {
-      deps.deleteHistoryFrom(chatJid, rollbackLength);
-      handleError(chatJid, e);
+      await deps.deleteHistoryFrom(chatJid, rollbackLength);
+      await handleError(chatJid, e);
     }
 
     return queryTurn;
@@ -144,24 +164,18 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       kind: "text",
       userName: "System",
       prompt: `Summarize the entire conversation and send it back to me.
-        Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
-        Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
+          Include: key topics discussed, decisions made, technical details, action items, and any important context for continuing the conversation.
+          Write a dense, factual summary. Write the summary in the same language used in the conversation.`,
       group,
     });
     if (!queryTurn) return;
 
     await deps.clearHistory(chatJid);
-
     await injectContextMd(group);
 
     let summary: string = "";
-    if ("candidates" in queryTurn && queryTurn.candidates) {
-      const parts = queryTurn.candidates[0]?.content?.parts || [];
-      summary =
-        parts
-          .filter((p) => !p.thought && p.text)
-          .map((p) => p.text)
-          .join("") || "";
+    if (!Array.isArray(queryTurn) && queryTurn.output_text) {
+      summary = queryTurn.output_text.trim();
     }
     if (summary.length === 0) return;
 
@@ -182,19 +196,17 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const history = await deps.loadHistory(chatJid);
     const queryTurn: QueryTurn | null = await runInternal(history, input);
 
-    if (!(queryTurn && "usageMetadata" in queryTurn)) return;
+    if (Array.isArray(queryTurn) || !queryTurn?.usage) return;
 
-    const usage = queryTurn.usageMetadata!;
-    const totalTokens = usage.totalTokenCount ?? 0;
-    const cachedTokens = usage.cachedContentTokenCount ?? 0;
-    const uncached = (usage.promptTokenCount ?? 0) - cachedTokens;
-    const output = totalTokens - (usage.promptTokenCount ?? 0);
+    const usage = queryTurn.usage;
+    const totalTokens = usage.total_tokens ?? 0;
+    const cachedTokens = usage.total_cached_tokens ?? 0;
+    const inputTokens = usage.total_input_tokens ?? 0;
+    const uncached = inputTokens - cachedTokens;
+    const output = usage.total_output_tokens ?? 0;
     await onOutput({
       chatJid,
-      message: `Total: ${totalTokens}
-Cached: ${cachedTokens}
-Uncached-Input: ${uncached}
-Output: ${output}`,
+      message: `Total: ${totalTokens}\nCached: ${cachedTokens}\nUncached-Input: ${uncached}\nOutput: ${output}`,
     });
     if (totalTokens >= 300_000) await runCompaction(input.group);
   };

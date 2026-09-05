@@ -2,8 +2,7 @@
 import os from "os";
 import path from "path";
 
-import { FinishReason, HarmBlockThreshold, HarmCategory, GenerateContentResponse, ThinkingLevel } from "@google/genai";
-import type { Content, FunctionCall, Part } from "@google/genai";
+import type { Interactions } from "@google/genai";
 
 import { logger } from "../core/utils/index.js";
 import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
@@ -20,9 +19,10 @@ import { createAstGrepTool, type AstGrepTool } from "./tools/ast_grep_tool.js";
 import { createGenerateVideoTool, type GenerateVideoTool } from "./tools/generate-video-tool.js";
 import { createGenerateImageTool, type GenerateImageTool, type ImageAspectRatio } from "./tools/generate-image-tool.js";
 
-export type MessageParam = Content;
-export type Message = Content & { totalTokenCount: number };
-export type QueryTurn = Content | GenerateContentResponse;
+export type Interaction = Interactions.Interaction;
+export type Content = Interactions.Content;
+export type Step = Interactions.Step;
+export type QueryTurn = Interactions.Interaction | Array<Interactions.FunctionResultStep>;
 export class RefusalError extends Error {
   constructor(message = "Gemini refused to process this request due to safety or policy blocks") {
     super(message);
@@ -57,20 +57,22 @@ const ANDROID_JIDS = ["tg:-5186159689", "tg:-5596082179"];
 const MAIN_CHAT_JID = "tg:-5274248775";
 const MAX_TOOL_DEPTH = 30;
 
-function mapGeminiToModelTurn(response: GenerateContentResponse): GenerateContentResponse {
-  const candidates = response.candidates!;
+function mapGeminiToModelTurn(interaction: Interactions.Interaction): Interactions.Interaction {
+  if (interaction.status === "failed") {
+    throw new Error(`Gemini processing failed due to: ${interaction.status}`);
+  }
+  if (interaction.status === "incomplete" || interaction.status === "cancelled") {
+    throw new Error(`Gemini processing incomplete/cancelled due to: ${interaction.status}`);
+  }
+  if (interaction.status === "budget_exceeded") {
+    throw new Error(`Gemini processing incomplete due to insuficient funds`);
+  }
 
-  candidates.forEach((c) => {
-    if (c.finishReason === FinishReason.SAFETY || c.finishReason === FinishReason.RECITATION) {
-      throw new RefusalError(`Gemini processing halted due to: ${c.finishReason} ${c.finishMessage}`);
-    }
-  });
-
-  return response;
+  return interaction;
 }
 
 async function handleFunctionCalls(
-  functionCalls: Array<FunctionCall>,
+  functionCalls: Array<Interactions.FunctionCallStep>,
   bashToolHandler: BashTool,
   astGrepToolHandler: AstGrepTool,
   urlContextToolHandler: UrlContextTool,
@@ -80,275 +82,250 @@ async function handleFunctionCalls(
   memoryToolsHandler: MemoryTools,
   generateVideoToolHandler: GenerateVideoTool,
   generateImageToolHandler: GenerateImageTool,
-): Promise<Content> {
-  const parts: Part[] = [];
+): Promise<Array<Interactions.FunctionResultStep>> {
+  const resultSteps: Array<Interactions.FunctionResultStep> = [];
 
   for (const functionCall of functionCalls) {
     if (!functionCall.name) continue;
 
     if (functionCall.name === "mcp_bash") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
         if (!sseMcpManager) throw new Error("MCP client manager not initialized");
-        const result = await sseMcpManager.callTool("work-mac__bash", functionCall.args as Record<string, unknown>);
-
+        const result = await sseMcpManager.callTool("work-mac__bash", functionCall.arguments as Record<string, unknown>);
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const mcpBashToolResultPart = {
-        name: "mcp_bash",
-        response: responsePayload,
-        id: functionCall.id,
-      };
-      parts.push({ functionResponse: mcpBashToolResultPart });
+      resultSteps.push({ type: "function_result", name: "mcp_bash", call_id: functionCall.id, result: responsePayload, is_error: isError });
       continue;
     }
 
     if (functionCall.name === "mcp_ast_grep") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
         if (!sseMcpManager) throw new Error("MCP client manager not initialized");
-        const result = await sseMcpManager.callTool("work-mac__ast_grep", functionCall.args as Record<string, unknown>);
-
+        const result = await sseMcpManager.callTool("work-mac__ast_grep", functionCall.arguments as Record<string, unknown>);
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const mcpAstGrepToolResultPart = {
-        name: "mcp_ast_grep",
-        response: responsePayload,
-        id: functionCall.id,
-      };
-      parts.push({ functionResponse: mcpAstGrepToolResultPart });
+      resultSteps.push({ type: "function_result", name: "mcp_ast_grep", call_id: functionCall.id, result: responsePayload, is_error: isError });
       continue;
     }
 
     if (functionCall.name === "bash") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
-        const args = functionCall.args as { command: string; restart?: boolean };
+        const args = functionCall.arguments as { command: string; restart?: boolean };
         const result = await bashToolHandler.execute(args);
-
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const bashToolResultPart = {
-        name: "bash",
-        response: responsePayload,
-        id: functionCall.id,
-      };
-      parts.push({ functionResponse: bashToolResultPart });
+      resultSteps.push({ type: "function_result", name: "bash", call_id: functionCall.id, result: responsePayload, is_error: isError });
       continue;
     }
 
     if (functionCall.name === "ast_grep") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
-        const result = await astGrepToolHandler.execute(functionCall.args as Record<string, string>);
+        const result = await astGrepToolHandler.execute(functionCall.arguments as Record<string, string>);
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const astGrepToolResultPart = {
-        name: "ast_grep",
-        response: responsePayload,
-        id: functionCall.id,
-      };
-      parts.push({ functionResponse: astGrepToolResultPart });
+      resultSteps.push({ type: "function_result", name: "ast_grep", call_id: functionCall.id, result: responsePayload, is_error: isError });
       continue;
     }
 
     if (functionCall.name === "generate_video") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
-        const args = functionCall.args as {
+        const args = functionCall.arguments as {
           prompt: string;
           aspectRatio?: "16:9" | "9:16";
           resolution?: "360p" | "720p" | "1080p" | "4k";
         };
         const result = await generateVideoToolHandler.execute(args);
-
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const generateVideoToolResultPart = {
-        name: "generate_video",
-        response: responsePayload,
-        id: functionCall.id,
-      };
-      logger.debug({ generateVideoToolResultPart }, "Generate video tool result");
-      parts.push({ functionResponse: generateVideoToolResultPart });
+      const generateVideoResultStep: Interactions.FunctionResultStep = { type: "function_result", name: "generate_video", call_id: functionCall.id, result: responsePayload, is_error: isError };
+      logger.debug({ generateVideoResultStep }, "Generate video tool result");
+      resultSteps.push(generateVideoResultStep);
       continue;
     }
 
     if (functionCall.name === "generate_image") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
-        const args = functionCall.args as {
+        const args = functionCall.arguments as {
           prompt: string;
           inputImagesPath?: string[];
           aspectRatio?: ImageAspectRatio;
           imageSize?: "512" | "1K" | "2K" | "4K";
         };
         const result = await generateImageToolHandler.execute(args);
-
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const generateImageToolResultPart = {
-        name: "generate_image",
-        response: responsePayload,
-        id: functionCall.id,
-      };
-      logger.debug({ generateImageToolResultPart }, "Generate image tool result");
-      parts.push({ functionResponse: generateImageToolResultPart });
+      const generateImageResultStep: Interactions.FunctionResultStep = { type: "function_result", name: "generate_image", call_id: functionCall.id, result: responsePayload, is_error: isError };
+      logger.debug({ generateImageResultStep }, "Generate image tool result");
+      resultSteps.push(generateImageResultStep);
       continue;
     }
 
     if (functionCall.name === "fetch_url_context") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
-        const args = functionCall.args as { url: string; query: string };
+        const args = functionCall.arguments as { url: string; query: string };
         const result = await urlContextToolHandler.execute(args);
-
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const urlContextToolResultPart = {
-        name: "fetch_url_context",
-        response: responsePayload,
-        id: functionCall.id,
-      };
-      logger.debug({ urlContextToolResultPart }, "Fetch url context tool result");
-      parts.push({ functionResponse: urlContextToolResultPart });
+      const urlContextResultStep: Interactions.FunctionResultStep = { type: "function_result", name: "fetch_url_context", call_id: functionCall.id, result: responsePayload, is_error: isError };
+      logger.debug({ urlContextResultStep }, "Fetch url context tool result");
+      resultSteps.push(urlContextResultStep);
       continue;
     }
 
     if (functionCall.name === "context7_search_library") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
-        const args = functionCall.args as { query: string; libraryName?: string };
+        const args = functionCall.arguments as { query: string; libraryName?: string };
         const result = await context7ToolsHandler.searchLibrary(args);
-
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const context7SearchResultPart = {
+      const context7SearchResultStep: Interactions.FunctionResultStep = {
+        type: "function_result",
         name: "context7_search_library",
-        response: responsePayload,
-        id: functionCall.id,
+        call_id: functionCall.id,
+        result: responsePayload,
+        is_error: isError,
       };
-      logger.debug({ context7SearchResultPart }, "Context7 search tool result");
-      parts.push({ functionResponse: context7SearchResultPart });
+      logger.debug({ context7SearchResultStep }, "Context7 search tool result");
+      resultSteps.push(context7SearchResultStep);
       continue;
     }
 
     if (functionCall.name === "context7_get_context") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
-        const args = functionCall.args as { query: string; libraryId: string };
+        const args = functionCall.arguments as { query: string; libraryId: string };
         const result = await context7ToolsHandler.getContext(args);
-
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const context7GetContextResultPart = {
+      const context7GetContextResultStep: Interactions.FunctionResultStep = {
+        type: "function_result",
         name: "context7_get_context",
-        response: responsePayload,
-        id: functionCall.id,
+        call_id: functionCall.id,
+        result: responsePayload,
+        is_error: isError,
       };
-      logger.debug({ context7GetContextResultPart }, "Context7 get context tool result");
-      parts.push({ functionResponse: context7GetContextResultPart });
+      logger.debug({ context7GetContextResultStep }, "Context7 get context tool result");
+      resultSteps.push(context7GetContextResultStep);
       continue;
     }
 
     if (functionCall.name === "save_memory") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
-        const args = functionCall.args as { content: string; tags: string[] };
+        const args = functionCall.arguments as { content: string; tags: string[] };
         const result = await memoryToolsHandler.saveMemory(args);
-
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const saveMemoryResultPart = {
-        name: "save_memory",
-        response: responsePayload,
-        id: functionCall.id,
-      };
-      logger.debug({ saveMemoryResultPart }, "Save memory tool result");
-      parts.push({ functionResponse: saveMemoryResultPart });
+      const saveMemoryResultStep: Interactions.FunctionResultStep = { type: "function_result", name: "save_memory", call_id: functionCall.id, result: responsePayload, is_error: isError };
+      logger.debug({ saveMemoryResultStep }, "Save memory tool result");
+      resultSteps.push(saveMemoryResultStep);
       continue;
     }
 
     if (functionCall.name === "delete_memory") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
-        const args = functionCall.args as { id: number };
+        const args = functionCall.arguments as { id: number };
         const result = await memoryToolsHandler.deleteMemory(args);
-
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const deleteMemoryResultPart = {
-        name: "delete_memory",
-        response: responsePayload,
-        id: functionCall.id,
-      };
-      logger.debug({ deleteMemoryResultPart }, "Delete memory tool result");
-      parts.push({ functionResponse: deleteMemoryResultPart });
+      const deleteMemoryResultStep: Interactions.FunctionResultStep = { type: "function_result", name: "delete_memory", call_id: functionCall.id, result: responsePayload, is_error: isError };
+      logger.debug({ deleteMemoryResultStep }, "Delete memory tool result");
+      resultSteps.push(deleteMemoryResultStep);
       continue;
     }
 
     if (functionCall.name === "query_memory") {
       let responsePayload: Record<string, unknown>;
+      let isError = false;
       try {
-        const args = functionCall.args as { query: string; limit?: number; tags?: string[] };
+        const args = functionCall.arguments as { query: string; limit?: number; tags?: string[] };
         const result = await memoryToolsHandler.queryMemory(args);
-
         responsePayload = { output: result };
       } catch (error) {
         responsePayload = { error: error instanceof Error ? error.message : String(error) };
+        isError = true;
       }
-      const queryMemoryResultPart = {
-        name: "query_memory",
-        response: responsePayload,
-        id: functionCall.id,
-      };
-      logger.debug({ queryMemoryResultPart }, "Query memory tool result");
-      parts.push({ functionResponse: queryMemoryResultPart });
+      const queryMemoryResultStep: Interactions.FunctionResultStep = { type: "function_result", name: "query_memory", call_id: functionCall.id, result: responsePayload, is_error: isError };
+      logger.debug({ queryMemoryResultStep }, "Query memory tool result");
+      resultSteps.push(queryMemoryResultStep);
       continue;
     }
 
     let responsePayload: Record<string, unknown>;
+    let isError = false;
     try {
-      const result = await httpMcpManager.callTool(functionCall.name, functionCall.args as Record<string, unknown>);
+      const result = await httpMcpManager.callTool(functionCall.name, functionCall.arguments as Record<string, unknown>);
       responsePayload = { output: result };
     } catch (error) {
       responsePayload = { error: error instanceof Error ? error.message : String(error) };
+      isError = true;
     }
-    const httpMcpToolResultPart = {
-      name: functionCall.name,
-      response: responsePayload,
-      id: functionCall.id,
-    };
-    parts.push({ functionResponse: httpMcpToolResultPart });
+    const httpMcpResultStep: Interactions.FunctionResultStep = { type: "function_result", name: functionCall.name, call_id: functionCall.id, result: responsePayload, is_error: isError };
+    resultSteps.push(httpMcpResultStep);
   }
 
-  return { role: "user", parts };
+  return resultSteps;
 }
 
-async function generateContent(contents: Content[], group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">, httpMcpManager: HttpMcpClientManager): Promise<GenerateContentResponse> {
-  const activeTools = (() => {
+async function generateInteraction(
+  steps: Interactions.Step[],
+  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">,
+  httpMcpManager: HttpMcpClientManager,
+): Promise<Interactions.Interaction> {
+  const activeTools: Interactions.Tool[] = (() => {
     const activeDeclarations = [...functionDeclarations];
     if (ANDROID_JIDS.includes(group.jid)) {
       activeDeclarations.push(...workMacFunctionDeclarations);
@@ -357,83 +334,71 @@ async function generateContent(contents: Content[], group: Pick<RegisteredGroup,
       activeDeclarations.push(...generateMediaFunctionDeclarations);
     }
     for (const tool of httpMcpManager.getTools()) {
-      activeDeclarations.push({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.input_schema as any,
-      });
+      activeDeclarations.push({ type: "function", name: tool.name, description: tool.description, parameters: tool.input_schema });
     }
-    return [{ functionDeclarations: activeDeclarations }, { googleSearch: {} }];
+    return activeDeclarations;
   })();
 
-  return ai.models.generateContent({
+  return ai.interactions.create({
     model: GEMINI_MODEL,
-    contents,
-    config: {
-      systemInstruction: `
+    system_instruction: `
         ${GEMINI_PROMPT}
         - Your dedicated workspace directory is located at '${path.resolve(GROUPS_DIR, group.folder)}'. You are authorized to use your file-writing tools to modify the 'context.md' file here to update core relational and style preferences.`,
-      thinkingConfig: {
-        includeThoughts: false,
-        thinkingLevel: ThinkingLevel.HIGH,
-      },
-      safetySettings: [
-        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.OFF },
-        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.OFF },
-        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.OFF },
-        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.OFF },
-        { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.OFF },
-      ],
-      toolConfig: {
-        includeServerSideToolInvocations: true,
-      },
-      tools: activeTools,
+    tools: activeTools,
+    stream: false,
+    store: false,
+    background: false,
+    generation_config: {
+      thinking_level: "high",
+      thinking_summaries: "none",
+      tool_choice: "auto",
     },
+    input: steps,
   });
 }
 
-function generateToolStopResponse(functionCalls: Array<FunctionCall>, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): Content {
-  const parts: Part[] = [];
+function generateToolStopResponse(functionCalls: Array<Interactions.FunctionCallStep>, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): Array<Interactions.FunctionResultStep> {
+  const resultSteps: Array<Interactions.FunctionResultStep> = [];
 
   for (const functionCall of functionCalls) {
     if (!functionCall.name) continue;
 
-    const stopResponsePart = {
+    const stopResultStep: Interactions.FunctionResultStep = {
+      type: "function_result",
       name: functionCall.name,
-      response: {
-        result: `STOP! The user wants you to stop the tools calling because it has something to say. Ask the user what he needs`,
-      },
-      id: functionCall.id,
+      call_id: functionCall.id,
+      is_error: true,
+      result: `STOP! The user wants you to stop the tools calling because it has something to say. Ask the user what he needs`,
     };
-    parts.push({ functionResponse: stopResponsePart });
-    logger.debug({ stopResponsePart, groupJid: group.jid }, "Injected manual tool stop response for group");
+    resultSteps.push(stopResultStep);
+    logger.debug({ stopResultStep, groupJid: group.jid }, "Injected manual tool stop response for group");
   }
 
-  return { role: "user", parts };
+  return resultSteps;
 }
 
-function generateMaxToolDepthReachedResponse(functionCalls: Array<FunctionCall>, toolCallDepth: number): Content {
-  const parts: Part[] = [];
+function generateMaxToolDepthReachedResponse(functionCalls: Array<Interactions.FunctionCallStep>, toolCallDepth: number): Array<Interactions.FunctionResultStep> {
+  const resultSteps: Array<Interactions.FunctionResultStep> = [];
 
   for (const functionCall of functionCalls) {
     if (!functionCall.name) continue;
 
-    const maxToolDepthResponsePart = {
+    const maxDepthResultStep: Interactions.FunctionResultStep = {
+      type: "function_result",
       name: functionCall.name,
-      response: {
-        result: `MAX DEPTH REACHED! You've reached the maximum execution depth allowed by the system: ${toolCallDepth}. If you need more iterations, politely ask the user to proceed further.`,
-      },
-      id: functionCall.id,
+      call_id: functionCall.id,
+      is_error: true,
+      result: `MAX DEPTH REACHED! You've reached the maximum execution depth allowed by the system: ${toolCallDepth}. If you need more iterations, politely ask the user to proceed further.`,
     };
-    parts.push({ functionResponse: maxToolDepthResponsePart });
-    logger.warn({ maxToolDepthResponsePart, toolCallDepth }, "Maximum tool depth reached");
+    resultSteps.push(maxDepthResultStep);
+    logger.warn({ maxDepthResultStep, toolCallDepth }, "Maximum tool depth reached");
   }
 
-  return { role: "user", parts };
+  return resultSteps;
 }
 
 async function* runQueryLoop(
-  inputMessages: Array<Content>,
+  inputMessages: Array<Step>,
   group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">,
   bashToolHandler: BashTool,
   astGrepToolHandler: AstGrepTool,
@@ -447,34 +412,34 @@ async function* runQueryLoop(
 ): AsyncGenerator<QueryTurn, void> {
   let continueLoop = true;
   let toolCallDepth = 0;
-  let response!: GenerateContentResponse;
 
   while (continueLoop) {
-    response = await generateContent(inputMessages, group, httpMcpManager);
+    const response = await generateInteraction(inputMessages, group, httpMcpManager);
 
     logger.debug({ response }, "Raw response from Gemini API");
 
-    const candidates = response.candidates;
-    if (!candidates || candidates.length === 0) throw new Error("Empty content payload returned from Gemini");
-    const firstContent = candidates[0].content;
-    if (!firstContent) throw new Error("Content unavailable");
+    const steps = response.steps || [];
+    if (steps.length === 0) {
+      throw new Error("Empty content payload returned from Gemini");
+    }
 
-    inputMessages.push(firstContent);
+    inputMessages.push(...steps);
 
     yield mapGeminiToModelTurn(response);
 
-    if (response.functionCalls && response.functionCalls.length > 0) {
+    const toolCalls = steps.filter((s): s is Interactions.FunctionCallStep => s.type === "function_call");
+    if (toolCalls.length > 0) {
       toolCallDepth++;
-      let userQueryTurn: Content;
+      let functionResultSteps: Array<Interactions.FunctionResultStep>;
 
       if (interruptedGroups.has(group.jid)) {
         interruptedGroups.delete(group.jid);
-        userQueryTurn = generateToolStopResponse(response.functionCalls, group);
+        functionResultSteps = generateToolStopResponse(toolCalls, group);
       } else if (toolCallDepth > MAX_TOOL_DEPTH) {
-        userQueryTurn = generateMaxToolDepthReachedResponse(response.functionCalls, toolCallDepth);
+        functionResultSteps = generateMaxToolDepthReachedResponse(toolCalls, toolCallDepth);
       } else {
-        userQueryTurn = await handleFunctionCalls(
-          response.functionCalls,
+        functionResultSteps = await handleFunctionCalls(
+          toolCalls,
           bashToolHandler,
           astGrepToolHandler,
           urlContextToolHandler,
@@ -487,9 +452,9 @@ async function* runQueryLoop(
         );
       }
 
-      logger.debug({ userQueryTurn }, "User query turn from function calls");
-      inputMessages.push(userQueryTurn);
-      yield userQueryTurn;
+      logger.debug({ functionResultSteps }, "User query turn from function calls");
+      inputMessages.push(...functionResultSteps);
+      yield functionResultSteps;
 
       continueLoop = true;
     } else {
@@ -498,7 +463,7 @@ async function* runQueryLoop(
   }
 }
 
-export async function* query(messages: Array<MessageParam>, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">, memoriesRepository: MemoriesRepository): AsyncGenerator<QueryTurn, void> {
+export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">, memoriesRepository: MemoriesRepository): AsyncGenerator<QueryTurn, void> {
   const bashToolHandler = BashTool.init(os.homedir());
   const aspGrepToolHandler = createAstGrepTool();
   const urlContextToolHandler = createUrlContextTool();
