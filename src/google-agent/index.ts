@@ -1,10 +1,8 @@
 /* eslint-disable no-catch-all/no-catch-all */
-import fs from "fs";
-import path from "path";
 import { Temporal } from "@js-temporal/polyfill";
 import { query, RefusalError, uploadMediaFile, interruptAgentLoop } from "../google-genai/index.js";
 import type { QueryTurn, Content, Step } from "../google-genai/index.js";
-import { logger, TIMEZONE, GROUPS_DIR } from "../core/utils/index.js";
+import { logger, TIMEZONE } from "../core/utils/index.js";
 import type { GeminiAgentInput } from "./types.js";
 import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
 
@@ -73,86 +71,65 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const chatJid: string = input.group.jid;
     const rollbackLength = history.length;
 
-    const content: Content[] = [];
-    if (input.kind === "image") {
-      const media = await uploadMediaFile(input.blob, input.mimeType);
-      content.push({
-        type: "image",
-        uri: media.uri,
-        mime_type: media.mimeType,
-      });
-    }
-    if (input.kind === "video") {
-      const media = await uploadMediaFile(input.blob, input.mimeType);
-      content.push({
-        type: "video",
-        uri: media.uri,
-        mime_type: media.mimeType,
-      });
-    }
-    if (input.kind === "voice") {
-      const media = await uploadMediaFile(input.blob, input.mimeType);
-      content.push({
-        type: "audio",
-        uri: media.uri,
-        mime_type: media.mimeType,
-      });
-    }
-    if (input.kind === "pdf") {
-      const media = await uploadMediaFile(input.blob, input.mimeType);
-      content.push({
-        type: "document",
-        uri: media.uri,
-        mime_type: media.mimeType,
-      });
-    }
-    if (input.prompt.length > 0) {
-      content.push({
-        type: "text",
-        text: wrapMessage(input.userName, input.prompt),
-      });
-    }
-    if (content.length === 0) return null;
-
-    const userStep: Step = { type: "user_input", content };
-
-    logger.debug({ userStep }, "Running user query");
-    await appendToHistory(chatJid, history, userStep);
-
-    let queryTurn: QueryTurn | null = null;
     try {
+      const content: Content[] = [];
+      if (input.kind === "image") {
+        const media = await uploadMediaFile(input.blob, input.mimeType);
+        content.push({
+          type: "image",
+          uri: media.uri,
+          mime_type: media.mimeType,
+        });
+      }
+      if (input.kind === "video") {
+        const media = await uploadMediaFile(input.blob, input.mimeType);
+        content.push({
+          type: "video",
+          uri: media.uri,
+          mime_type: media.mimeType,
+        });
+      }
+      if (input.kind === "voice") {
+        const media = await uploadMediaFile(input.blob, input.mimeType);
+        content.push({
+          type: "audio",
+          uri: media.uri,
+          mime_type: media.mimeType,
+        });
+      }
+      if (input.kind === "pdf") {
+        const media = await uploadMediaFile(input.blob, input.mimeType);
+        content.push({
+          type: "document",
+          uri: media.uri,
+          mime_type: media.mimeType,
+        });
+      }
+      if (input.prompt.length > 0) {
+        content.push({
+          type: "text",
+          text: wrapMessage(input.userName, input.prompt),
+        });
+      }
+      if (content.length === 0) return null;
+
+      const userStep: Step = { type: "user_input", content };
+
+      logger.debug({ userStep }, "Running user query");
+      await appendToHistory(chatJid, history, userStep);
+
+      let queryTurn: QueryTurn | null = null;
       for await (const response of query([...history], input.group, deps.memoriesRepository)) {
         await handleResponse(chatJid, history, response);
         queryTurn = response;
       }
+
+      return queryTurn;
     } catch (e) {
-      await deps.deleteHistoryFrom(chatJid, rollbackLength);
+      history.length = rollbackLength;
+      await deps.deleteHistoryFrom(chatJid, rollbackLength + 1);
       await handleError(chatJid, e);
-    }
-
-    return queryTurn;
-  };
-
-  const injectContextMd = async (group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">) => {
-    const chatJid: string = group.jid;
-    const history = await deps.loadHistory(chatJid);
-    if (history.length > 0) return;
-
-    logger.debug({ chatJid }, "Injecting context.md if available");
-
-    const contextMdPath = path.resolve(GROUPS_DIR, group.folder, "context.md");
-    if (fs.existsSync(contextMdPath)) {
-      const contextMdContent = fs.readFileSync(contextMdPath, "utf-8");
-      if (contextMdContent) {
-        await runInternal(history, {
-          kind: "text",
-          userName: "System",
-          prompt: `Below are the critical relational and style preferences for our partnership. Read and internalize these FIRST:
-            
-            ${contextMdContent}`,
-          group,
-        });
-      }
+      return null;
     }
   };
 
@@ -171,7 +148,6 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     if (!queryTurn) return;
 
     await deps.clearHistory(chatJid);
-    await injectContextMd(group);
 
     let summary: string = "";
     if (!Array.isArray(queryTurn) && queryTurn.output_text) {
@@ -189,9 +165,6 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
   const runQuery = async (input: GeminiAgentInput): Promise<void> => {
     const chatJid = input.group.jid;
-    logger.debug({ chatJid, input }, "Received input from the user");
-
-    await injectContextMd(input.group);
 
     const history = await deps.loadHistory(chatJid);
     const queryTurn: QueryTurn | null = await runInternal(history, input);

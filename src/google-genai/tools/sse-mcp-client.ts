@@ -2,21 +2,21 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { logger as baseLogger } from "../../core/utils/index.js";
 
-const logger = baseLogger.child({ name: "mcp-client" });
+const logger = baseLogger.child({ name: "sse-mcp-client" });
 
-interface McpServerConfig {
+export interface SseMcpServerConfig {
   url: string;
   headers?: Record<string, string>;
 }
 
-interface McpToolDefinition {
+export interface McpToolDefinition {
   name: string;
   description?: string;
   input_schema: {
     type: "object";
-    properties?: Record<string, any>;
+    properties?: Record<string, unknown>;
     required?: string[];
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
@@ -24,24 +24,22 @@ interface McpConnection {
   client: Client;
   transport: SSEClientTransport;
   tools: McpToolDefinition[];
-  /** Maps prefixed tool name → original tool name on the server */
   toolNameMap: Map<string, string>;
   serverName: string;
 }
 
-export class SseMcpClientManager {
-  private connections: Map<string, McpConnection> = new Map();
+export interface SseMcpClientManager {
+  connect: (servers: Record<string, SseMcpServerConfig>) => Promise<void>;
+  getTools: () => McpToolDefinition[];
+  hasTool: (prefixedName: string) => boolean;
+  callTool: (prefixedName: string, input: Record<string, unknown>) => Promise<string>;
+  close: () => Promise<void>;
+}
 
-  /**
-   * Connect to all configured MCP servers and discover their tools.
-   * Tool names are prefixed with `serverName__` to avoid collisions.
-   */
-  async connect(servers: Record<string, McpServerConfig>): Promise<void> {
-    const connectPromises = Object.entries(servers).map(([name, config]) => this.connectOne(name, config));
-    await Promise.all(connectPromises);
-  }
+export const createSseMcpClientManager = (): SseMcpClientManager => {
+  const connections = new Map<string, McpConnection>();
 
-  private async connectOne(serverName: string, config: McpServerConfig): Promise<void> {
+  const connectOne = async (serverName: string, config: SseMcpServerConfig): Promise<void> => {
     const transport = new SSEClientTransport(new URL(config.url), {
       eventSourceInit: {
         fetch: (input: string | URL | Request, init?: RequestInit) =>
@@ -72,31 +70,43 @@ export class SseMcpClientManager {
         };
       });
 
-      this.connections.set(serverName, { client, transport, tools, toolNameMap, serverName });
-      logger.info({ serverName, toolCount: tools.length, toolNames: tools.map((t) => t.name) }, "MCP server connected");
+      connections.set(serverName, { client, transport, tools, toolNameMap, serverName });
+      logger.info({ serverName, toolCount: tools.length }, "SSE MCP server connected");
     } catch (err) {
-      logger.error({ serverName, error: err instanceof Error ? err.message : String(err) }, "Failed to connect to MCP server");
+      logger.error({ serverName, error: err instanceof Error ? err.message : String(err) }, "Failed to connect to SSE MCP server");
+      await transport.close().catch(() => {});
       throw err;
     }
-  }
+  };
 
-  /**
-   * Check if a tool name belongs to an MCP server.
-   */
-  handles(toolName: string): boolean {
-    for (const conn of this.connections.values()) {
-      if (conn.toolNameMap.has(toolName)) return true;
+  const connect = async (servers: Record<string, SseMcpServerConfig>): Promise<void> => {
+    const connectPromises = Object.entries(servers).map(([name, config]) => connectOne(name, config));
+    await Promise.all(connectPromises);
+  };
+
+  const getTools = (): McpToolDefinition[] => {
+    const allTools: McpToolDefinition[] = [];
+    for (const conn of connections.values()) {
+      allTools.push(...conn.tools);
+    }
+    return allTools;
+  };
+
+  const hasTool = (prefixedName: string): boolean => {
+    for (const conn of connections.values()) {
+      if (conn.toolNameMap.has(prefixedName)) {
+        return true;
+      }
     }
     return false;
-  }
+  };
 
-  /**
-   * Call an MCP tool. Returns text content. Throws on errors or non-zero exit codes.
-   */
-  async callTool(prefixedName: string, input: Record<string, unknown>): Promise<string> {
-    for (const conn of this.connections.values()) {
+  const callTool = async (prefixedName: string, input: Record<string, unknown>): Promise<string> => {
+    for (const conn of connections.values()) {
       const originalName = conn.toolNameMap.get(prefixedName);
-      if (originalName === undefined) continue;
+      if (originalName === undefined) {
+        continue;
+      }
 
       if (originalName === "bash") {
         const command = typeof input.command === "string" ? input.command : "";
@@ -136,21 +146,26 @@ export class SseMcpClientManager {
       return text;
     }
 
-    throw new Error(`No MCP server handles tool '${prefixedName}'`);
-  }
+    throw new Error(`No SSE MCP server handles tool '${prefixedName}'`);
+  };
 
-  /**
-   * Disconnect from all MCP servers.
-   */
-  async close(): Promise<void> {
-    for (const [name, conn] of this.connections) {
+  const close = async (): Promise<void> => {
+    for (const [name, conn] of connections) {
       try {
         await conn.transport.close();
-        logger.info({ serverName: name }, "MCP server disconnected");
+        logger.info({ serverName: name }, "SSE MCP server disconnected");
       } catch (err) {
-        logger.warn({ serverName: name, error: err instanceof Error ? err.message : String(err) }, "Error closing MCP connection");
+        logger.warn({ serverName: name, error: err instanceof Error ? err.message : String(err) }, "Error closing SSE MCP connection");
       }
     }
-    this.connections.clear();
-  }
-}
+    connections.clear();
+  };
+
+  return {
+    connect,
+    getTools,
+    hasTool,
+    callTool,
+    close,
+  };
+};

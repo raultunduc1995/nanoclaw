@@ -1,12 +1,14 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { logger as baseLogger } from "../../core/utils/index.js";
 
-const logger = baseLogger.child({ name: "http-mcp-client" });
+const logger = baseLogger.child({ name: "stdio-mcp-client" });
 
-export interface HttpMcpServerConfig {
-  url: string;
-  headers?: Record<string, string>;
+export interface StdioMcpServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
 }
 
 export interface McpToolDefinition {
@@ -20,30 +22,32 @@ export interface McpToolDefinition {
   };
 }
 
-interface McpConnection {
+interface StdioMcpConnection {
   client: Client;
-  transport: StreamableHTTPClientTransport;
+  transport: StdioClientTransport;
   tools: McpToolDefinition[];
   toolNameMap: Map<string, string>;
   serverName: string;
 }
 
-export interface HttpMcpClientManager {
-  connect: (servers: Record<string, HttpMcpServerConfig>) => Promise<void>;
+export interface StdioMcpClientManager {
+  connect: (servers: Record<string, StdioMcpServerConfig>) => Promise<void>;
   getTools: () => McpToolDefinition[];
   hasTool: (prefixedName: string) => boolean;
   callTool: (prefixedName: string, input: Record<string, unknown>) => Promise<string>;
   close: () => Promise<void>;
 }
 
-export const createHttpMcpClientManager = (): HttpMcpClientManager => {
-  const connections = new Map<string, McpConnection>();
+export const createStdioMcpClientManager = (): StdioMcpClientManager => {
+  const connections = new Map<string, StdioMcpConnection>();
 
-  const connectOne = async (serverName: string, config: HttpMcpServerConfig): Promise<void> => {
-    const transport = new StreamableHTTPClientTransport(new URL(config.url), {
-      requestInit: {
-        headers: config.headers,
-      },
+  const connectOne = async (serverName: string, config: StdioMcpServerConfig): Promise<void> => {
+    const transport = new StdioClientTransport({
+      command: config.command,
+      args: config.args,
+      env: config.env,
+      cwd: config.cwd,
+      stderr: "pipe",
     });
 
     const client = new Client({ name: `nanoclaw-${serverName}`, version: "1.0.0" });
@@ -64,15 +68,15 @@ export const createHttpMcpClientManager = (): HttpMcpClientManager => {
       });
 
       connections.set(serverName, { client, transport, tools, toolNameMap, serverName });
-      logger.info({ serverName, toolCount: tools.length }, "HTTP MCP server connected");
+      logger.info({ serverName, toolCount: tools.length }, "Stdio MCP server connected");
     } catch (err) {
-      logger.error({ serverName, error: err instanceof Error ? err.message : String(err) }, "Failed to connect to HTTP MCP server");
+      logger.error({ serverName, error: err instanceof Error ? err.message : String(err) }, "Failed to connect to Stdio MCP server");
       await transport.close().catch(() => {});
       throw err;
     }
   };
 
-  const connect = async (servers: Record<string, HttpMcpServerConfig>): Promise<void> => {
+  const connect = async (servers: Record<string, StdioMcpServerConfig>): Promise<void> => {
     const connectPromises = Object.entries(servers).map(([name, config]) => connectOne(name, config));
     await Promise.all(connectPromises);
   };
@@ -101,19 +105,7 @@ export const createHttpMcpClientManager = (): HttpMcpClientManager => {
         continue;
       }
 
-      if (originalName === "bash") {
-        const command = typeof input.command === "string" ? input.command : "";
-        const blocked = ["reset", "commit", "push", "restore", "checkout", "clean"];
-        for (const cmd of blocked) {
-          const regex = new RegExp(`\\bgit\\b([^;&|\\r\\n]*?\\b${cmd}\\b)`, "i");
-          if (regex.test(command)) {
-            throw new Error("Operation not permitted");
-          }
-        }
-      }
-
       const result = await conn.client.callTool({ name: originalName, arguments: input });
-
       const content = result.content as Array<{ type: string; text?: string }>;
       const textParts = content.filter((c) => c.type === "text" && typeof c.text === "string").map((c) => c.text as string);
       const text = textParts.join("\n");
@@ -122,33 +114,19 @@ export const createHttpMcpClientManager = (): HttpMcpClientManager => {
         throw new Error(text || "MCP tool returned an error");
       }
 
-      const structured = result.structuredContent as Record<string, unknown> | undefined;
-
-      if (originalName === "bash" && structured) {
-        if (typeof structured.exitCode === "number" && structured.exitCode !== 0) {
-          throw new Error(((structured.stdout as string) + (structured.stderr as string)).trim());
-        }
-
-        return ((structured.stdout as string) + (structured.stderr as string)).trim();
-      }
-
-      if (originalName === "text_editor" && structured) {
-        return structured.result as string;
-      }
-
       return text;
     }
 
-    throw new Error(`No HTTP MCP server handles tool '${prefixedName}'`);
+    throw new Error(`No Stdio MCP server handles tool '${prefixedName}'`);
   };
 
   const close = async (): Promise<void> => {
     for (const [name, conn] of connections) {
       try {
         await conn.transport.close();
-        logger.info({ serverName: name }, "HTTP MCP server disconnected");
+        logger.info({ serverName: name }, "Stdio MCP server disconnected");
       } catch (err) {
-        logger.warn({ serverName: name, error: err instanceof Error ? err.message : String(err) }, "Error closing HTTP MCP connection");
+        logger.warn({ serverName: name, error: err instanceof Error ? err.message : String(err) }, "Error closing Stdio MCP connection");
       }
     }
     connections.clear();

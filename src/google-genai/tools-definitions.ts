@@ -41,44 +41,6 @@ export const functionDeclarations: Interactions.Tool[] = [
   },
   {
     type: "function",
-    name: "context7_search_library",
-    description: "Search the Context7 registry for official API documentation library IDs based on a query or framework.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "The search query (e.g., 'I need to build a UI with components').",
-        },
-        libraryName: {
-          type: "string",
-          description: "Optional filter for the library name. Should be a single lowercase keyword (e.g., 'react', 'android', 'nextjs').",
-        },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    type: "function",
-    name: "context7_get_context",
-    description: "Retrieve fresh, official API documentation and code examples from a specific Context7 library.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "The exact problem or task to query docs for (e.g., 'How do I use hooks?').",
-        },
-        libraryId: {
-          type: "string",
-          description: "The exact library ID resolved from context7_search_library (e.g., '/facebook/react').",
-        },
-      },
-      required: ["query", "libraryId"],
-    },
-  },
-  {
-    type: "function",
     name: "save_memory",
     description: "Save an explicit, high-signal architectural rule, preference, or snippet into the persistent local SQLite vector database.",
     parameters: {
@@ -196,88 +158,6 @@ export const functionDeclarations: Interactions.Tool[] = [
   },
   {
     type: "google_search",
-  },
-];
-
-export const workMacFunctionDeclarations: Interactions.Tool[] = [
-  {
-    type: "function",
-    name: "mcp_bash",
-    description: "Execute a single bash command string on the remote work-mac server.",
-    parameters: {
-      type: "object",
-      properties: {
-        command: {
-          type: "string",
-          description: "The exact bash command line to run on the remote server.",
-        },
-        cwd: {
-          type: "string",
-          description: "Optional working directory on the remote server.",
-        },
-        timeoutMs: {
-          type: "integer",
-          description: "Optional execution timeout in milliseconds.",
-        },
-      },
-      required: ["command"],
-    },
-  },
-  {
-    type: "function",
-    name: "mcp_ast_grep",
-    description: `Execute structural code search, patching, and code outlining using Abstract Syntax Trees (ast-grep/sg) on the remote work-mac server. EXCLUSIVELY USE FOR FILES THAT CONTAIN CODE (do not use for markdown or plain text).
-  Usage & Combinations:
-  - rule: Structural search and replace using JSON logic (e.g. pattern, inside, has, not).
-    - You must provide 'language' (e.g., 'typescript', 'kotlin').
-    - 'rule' is a JSON object with conditions. Metavariables: $VAR (single node), $$$VAR (multiple nodes).
-    - 'fix' is an optional string to replace matches.
-    Example rule (JSON): { "pattern": "console.log($$$)", "inside": { "kind": "method_definition" } }
-  - outline: Map code structure without reading full files.
-    - Map directory API surface: path: 'dir/', items: 'exports', view: 'names'
-    - Trace dependencies: path: 'dir/', items: 'imports', view: 'signatures'
-    - Map local file structure: path: 'file.ts', items: 'structure', view: 'digest'
-    - Zoom into symbol types: path: 'file.ts', type: 'class,function', view: 'expanded'
-    Example outline args (JSON): { "command": "outline", "path": "src/", "items": "exports", "view": "signatures" }`,
-    parameters: {
-      type: "object",
-      properties: {
-        command: {
-          type: "string",
-          description: "The ast-grep command to run.",
-          enum: ["rule", "outline"],
-        },
-        path: {
-          type: "string",
-          description: "The file or directory path to search/modify on the remote work-mac server.",
-        },
-        language: {
-          type: "string",
-          description: "The language of the target files (e.g. 'typescript', 'kotlin'). Required for 'rule'.",
-        },
-        rule: {
-          type: "object",
-          description: "The pure JSON object representing the ast-grep rule conditions (e.g. { pattern: '...' }). Required for 'rule'.",
-        },
-        fix: {
-          type: "string",
-          description: "Optional replacement string for matches found by the rule (used for patching).",
-        },
-        items: {
-          type: "string",
-          description: "Top-level items to outline. Options: 'structure', 'exports', 'imports', 'all' (used for 'outline').",
-        },
-        view: {
-          type: "string",
-          description: "Outline detail level. Options: 'names', 'signatures', 'digest', 'expanded' (used for 'outline').",
-        },
-        type: {
-          type: "string",
-          description: "Comma-separated list of top-level symbol types to filter (e.g. 'class,function') (used for 'outline').",
-        },
-      },
-      required: ["command", "path"],
-    },
   },
 ];
 
