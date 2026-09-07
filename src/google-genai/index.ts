@@ -78,8 +78,7 @@ async function handleFunctionCalls(
   astGrepToolHandler: AstGrepTool,
   urlContextToolHandler: UrlContextTool,
   sseMcpManager: SseMcpClientManager | null,
-  devKnowledgeHttpMcpManager: HttpMcpClientManager,
-  context7HttpMcpManager: HttpMcpClientManager,
+  httpMcpManager: HttpMcpClientManager,
   stdioMcpManager: StdioMcpClientManager | null,
   memoryToolsHandler: MemoryTools,
   generateVideoToolHandler: GenerateVideoTool,
@@ -172,7 +171,7 @@ async function handleFunctionCalls(
       continue;
     }
 
-if (functionCall.name === "save_memory") {
+    if (functionCall.name === "save_memory") {
       try {
         const args = functionCall.arguments as { content: string; tags: string[] };
         const result = await memoryToolsHandler.saveMemory(args);
@@ -224,11 +223,8 @@ if (functionCall.name === "save_memory") {
       } else if (stdioMcpManager && (stdioMcpManager as StdioMcpClientManager).hasTool(functionCall.name)) {
         const result = await (stdioMcpManager as StdioMcpClientManager).callTool(functionCall.name, functionCall.arguments as Record<string, unknown>);
         responsePayload = { output: result };
-      } else if (context7HttpMcpManager.hasTool(functionCall.name)) {
-        const result = await context7HttpMcpManager.callTool(functionCall.name, functionCall.arguments as Record<string, unknown>);
-        responsePayload = { output: result };
       } else {
-        const result = await devKnowledgeHttpMcpManager.callTool(functionCall.name, functionCall.arguments as Record<string, unknown>);
+        const result = await httpMcpManager.callTool(functionCall.name, functionCall.arguments as Record<string, unknown>);
         responsePayload = { output: result };
       }
     } catch (error) {
@@ -245,8 +241,7 @@ if (functionCall.name === "save_memory") {
 async function generateInteraction(
   steps: Interactions.Step[],
   group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">,
-  devKnowledgeHttpMcpManager: HttpMcpClientManager,
-  context7HttpMcpManager: HttpMcpClientManager,
+  httpMcpManager: HttpMcpClientManager,
   sseMcpManager: SseMcpClientManager | null,
   stdioMcpManager: StdioMcpClientManager | null,
 ): Promise<Interactions.Interaction> {
@@ -255,10 +250,7 @@ async function generateInteraction(
     if (group.jid === MAIN_CHAT_JID) {
       activeDeclarations.push(...generateMediaFunctionDeclarations);
     }
-    for (const tool of devKnowledgeHttpMcpManager.getTools()) {
-      activeDeclarations.push({ type: "function", name: tool.name, description: tool.description, parameters: tool.input_schema });
-    }
-    for (const tool of context7HttpMcpManager.getTools()) {
+    for (const tool of httpMcpManager.getTools()) {
       activeDeclarations.push({ type: "function", name: tool.name, description: tool.description, parameters: tool.input_schema });
     }
     if (sseMcpManager) {
@@ -349,8 +341,7 @@ async function* runQueryLoop(
   astGrepToolHandler: AstGrepTool,
   urlContextToolHandler: UrlContextTool,
   sseMcpManager: SseMcpClientManager | null,
-  devKnowledgeHttpMcpManager: HttpMcpClientManager,
-  context7HttpMcpManager: HttpMcpClientManager,
+  httpMcpManager: HttpMcpClientManager,
   stdioMcpManager: StdioMcpClientManager | null,
   memoryToolsHandler: MemoryTools,
   generateVideoToolHandler: GenerateVideoTool,
@@ -360,7 +351,7 @@ async function* runQueryLoop(
   let toolCallDepth = 0;
 
   while (continueLoop) {
-    const response = await generateInteraction(inputMessages, group, devKnowledgeHttpMcpManager, context7HttpMcpManager, sseMcpManager, stdioMcpManager);
+    const response = await generateInteraction(inputMessages, group, httpMcpManager, sseMcpManager, stdioMcpManager);
 
     logger.debug({ response }, "Raw response from Gemini API");
 
@@ -390,8 +381,7 @@ async function* runQueryLoop(
           astGrepToolHandler,
           urlContextToolHandler,
           sseMcpManager,
-          devKnowledgeHttpMcpManager,
-          context7HttpMcpManager,
+          httpMcpManager,
           stdioMcpManager,
           memoryToolsHandler,
           generateVideoToolHandler,
@@ -418,8 +408,7 @@ export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup,
   const generateVideoToolHandler = createGenerateVideoTool();
   const generateImageToolHandler = createGenerateImageTool();
   let sseMcpManager: SseMcpClientManager | null = null;
-  const devKnowledgeHttpMcpManager: HttpMcpClientManager = createHttpMcpClientManager();
-  const context7HttpMcpManager: HttpMcpClientManager = createHttpMcpClientManager();
+  const httpMcpManager: HttpMcpClientManager = createHttpMcpClientManager();
   const stdioMcpManager: StdioMcpClientManager | null = null;
 
   try {
@@ -441,15 +430,13 @@ export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup,
       //   },
       // });
     }
-    await devKnowledgeHttpMcpManager.connect({
+    await httpMcpManager.connect({
       "google-developer-knowledge": {
         url: "https://developerknowledge.googleapis.com/mcp",
         headers: {
           "X-Goog-Api-Key": DEVELOPER_KNOWLEDGE_API_KEY,
         },
       },
-    });
-    await context7HttpMcpManager.connect({
       context7: {
         url: "https://mcp.context7.com/mcp",
         headers: {
@@ -465,8 +452,7 @@ export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup,
       aspGrepToolHandler,
       urlContextToolHandler,
       sseMcpManager,
-      devKnowledgeHttpMcpManager,
-      context7HttpMcpManager,
+      httpMcpManager,
       stdioMcpManager,
       memoryToolsHandler,
       generateVideoToolHandler,
@@ -482,8 +468,7 @@ export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup,
   } finally {
     if (sseMcpManager) await sseMcpManager.close().catch(() => {});
     if (stdioMcpManager) await (stdioMcpManager as StdioMcpClientManager).close().catch(() => {});
-    await devKnowledgeHttpMcpManager.close().catch(() => {});
-    await context7HttpMcpManager.close().catch(() => {});
+    await httpMcpManager.close().catch(() => {});
   }
 }
 
