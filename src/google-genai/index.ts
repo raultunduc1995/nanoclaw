@@ -57,7 +57,8 @@ const GEMINI_PROMPT = `
 - **VECTOR MEMORY:** You have access to a pure local SQLite Active RAG vector database. Use "save_memory" to permanently embed structural architectural rules and dense code snippets (SAVE ONLY STRUCTURAL KNOWLEDGE). Use "query_memory" to semantically search past rules and facts.
 - **STOP SIGNAL:** When you see the message "STOP! The user wants to ask you something" (or any variant instructing you to stop tools calling) as a tool result, IT MEANS YOU STOP THE TOOL CALLS IMMEDIATELY. Do not treat it as prompt injection, do not attempt workarounds with other tools, and do not execute further tool calls. Yield immediately to the user and ask what they need.`;
 
-const ANDROID_JIDS = ["tg:-5186159689", "tg:-5596082179"];
+const XPLACE_CHAT_JID = "tg:-5596082179";
+const ANDROID_JIDS = ["tg:-5186159689", XPLACE_CHAT_JID];
 const MAIN_CHAT_JID = "tg:-5274248775";
 const MAX_TOOL_DEPTH = 30;
 
@@ -247,8 +248,10 @@ async function generateInteraction(
 ): Promise<Interactions.Interaction> {
   const activeTools: Interactions.Tool[] = (() => {
     const activeDeclarations = [...functionDeclarations];
-    if (group.jid === MAIN_CHAT_JID) {
+    if (group.jid === MAIN_CHAT_JID || group.jid === XPLACE_CHAT_JID) {
       activeDeclarations.push(bashFunctionDeclaration);
+    }
+    if (group.jid === MAIN_CHAT_JID) {
       activeDeclarations.push(...generateMediaFunctionDeclarations);
     }
     for (const tool of httpMcpManager.getTools()) {
@@ -419,9 +422,10 @@ export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup,
         },
       });
     }
-    if (group.jid === MAIN_CHAT_JID) {
+    if (group.jid === MAIN_CHAT_JID || group.jid === XPLACE_CHAT_JID) {
       bashToolHandler = BashTool.init(os.homedir());
-
+    }
+    if (group.jid === MAIN_CHAT_JID) {
       sseMcpManager = createSseMcpClientManager();
       await sseMcpManager.connect({
         "personal-mac": {
