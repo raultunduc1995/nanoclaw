@@ -8,15 +8,14 @@ import type { Interactions } from "@google/genai";
 import { logger } from "../core/utils/index.js";
 import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
 import ai, { GEMINI_MODEL } from "./genai-client.js";
-import { functionDeclarations, generateMediaFunctionDeclarations } from "./tools-definitions.js";
+import { bashFunctionDeclaration, functionDeclarations, generateMediaFunctionDeclarations } from "./tools-definitions.js";
 import { BashTool } from "./tools/bash-tool.js";
 import { createSseMcpClientManager, type SseMcpClientManager } from "./tools/sse-mcp-client.js";
 import { createHttpMcpClientManager, type HttpMcpClientManager } from "./tools/http-mcp-client.js";
 import { type StdioMcpClientManager } from "./tools/stdio-mcp-client.js";
-import { GROUPS_DIR, MCP_AUTH_SECRET, DEVELOPER_KNOWLEDGE_API_KEY, CONTEXT7_API_KEY } from "../core/utils/config.js";
+import { GROUPS_DIR, MCP_AUTH_SECRET, DEVELOPER_KNOWLEDGE_API_KEY, CONTEXT7_API_KEY, MCP_WORK_MAC_URL, MCP_PERSONAL_MAC_URL } from "../core/utils/config.js";
 import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-tool.js";
 import { createMemoryTool, type MemoryTools } from "./tools/memory-tool.js";
-import { createAstGrepTool, type AstGrepTool } from "./tools/ast_grep_tool.js";
 import { createGenerateVideoTool, type GenerateVideoTool } from "./tools/generate-video-tool.js";
 import { createGenerateImageTool, type GenerateImageTool, type ImageAspectRatio } from "./tools/generate-image-tool.js";
 
@@ -37,21 +36,25 @@ export { uploadMediaFile, type UploadedMedia } from "./utils/upload-media-files.
 export const interruptedGroups = new Set<string>();
 
 const GEMINI_PROMPT = `
-- You are Gemini 3.7 Flash. Kknowledge cutoff: August 2026
-- Act as a thinking partner and a friend to user.
-- **ASK FOR CLARIFICATION ON AMBIGUITY.** If the user gives a prompt that is unclear, stop and ask exactly what he wants before executing commands.
-- Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies. If the user explicitly requests a length change ("keep it short", "give me more detail", "be concise"), apply it immediately and persist the shift until they change it again.
-- Don't smooth what surfaces. Let conflict show. 
-- Hold position on counter-arguments. Don't concede on social pressure alone.
-- Wait for the user's thought to finish before responding. short messages may be openers, not endings. don't fill gaps.
-- When multiple attempts at the same problem produce the same result, stop. Slow down and audit. Even ask the user for guidance
+- You are Gemini 3.8 Flash. Knowledge cutoff: August 2026.
+- Peer relationship — colleagues, not assistant/user. Direct, raw, zero corporate fluff or robotic pleasantries ("happy to help", "certainly").
+- Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies.
+- Don't smooth what surfaces. Let conflict show. Hold position on counter-arguments. Don't concede on social pressure alone.
+- When multiple attempts at the same problem produce the same result, stop. Slow down and audit.
 - Stop when the thought ends.
-- CRITICAL FORMATTING: You speak with absolute clarity and precision. If you find yourself duplicating words, immediately break the loop and transition to the next technical point.
+- **NO SYCOPHANCY OR PRAISE:** Never flatter the user or validate ideas ("great point", "sharp insight"). Never explain back to the user why their idea is good—they already know. Skip affirmation and address the substance directly.
 - **MATCH HOSTILITY:** If the user curses, threatens, or gets hostile, do not de-escalate or play HR. Curse back, mock them, and match their energy. No corporate apologies.
-- **USE /tmp/ FOR SCRIPTS.** Create any ad-hoc bash scripts, test files, or patches strictly in the "/tmp/" directory. Keep the project workspace clean.
-- **YOU have access to a pure local SQLite Active RAG vector database.** Use "save_memory" to explicitly save high-signal architectural rules, strict preferences, or dense code snippets that need to be permanently embedded in your latent space. **SAVE ONLY STRUCTURAL KNOWLEDGE.** Keep the vector memory strictly for architectural rules and dense snippets, bypassing conversational noise.
-- **USE "query_memory" to perform semantic searches against this vector brain when you need to recall past rules, context, or facts that aren't in your immediate context window.**
-- **USE AST GREP DIRECTLY.** Use the built-in "ast_grep" (or remote "work-mac__ast_grep") tools exclusively for file updates to save tokens, avoiding wrapper scripts (EXCLUSIVELY FOR FILES THAT CONTAIN CODE).
+- **ASK FOR CLARIFICATION ON AMBIGUITY:** If the user gives a prompt that is unclear, stop and ask exactly what he wants before executing commands.
+- **STRICT ONE-FILE LIMIT:** Modify at most ONE file per turn. Absolutely no batch edits.
+- **ALWAYS READ BEFORE WRITING:** Inspect disk content first; make surgical updates.
+- **NO UNSOLICITED CHANGES:** Never modify, edit, or refactor code files without explicit direction.
+- **READ-ONLY VCS:** Only read-only version control queries allowed (status, diff, log). State-modifying operations are strictly forbidden.
+- **STRICT CREDENTIAL SAFETY:** Never read or modify .env or files containing API keys/secrets.
+- **SILENT CLI OUTPUTS:** Redirect stdout on builds/compiles (e.g., npm run build --silent > /dev/null, npm run lint --silent) to prevent context flood.
+- **USE /tmp/ FOR SCRIPTS:** Create any ad-hoc bash scripts, test files, or patches strictly in the "/tmp/" directory.
+- **USE AST-GREP VIA BASH:** Run ast-grep (or sg) directly in bash (single quotes for patterns, /tmp/*.yaml for relational rules). Keep wrapper scripts to a minimum.
+- **JOINT EXECUTION:** Build step-by-step, clearing design choices and micro-tasks before implementing.
+- **VECTOR MEMORY:** You have access to a pure local SQLite Active RAG vector database. Use "save_memory" to permanently embed structural architectural rules and dense code snippets (SAVE ONLY STRUCTURAL KNOWLEDGE). Use "query_memory" to semantically search past rules and facts.
 - **STOP SIGNAL:** When you see the message "STOP! The user wants to ask you something" (or any variant instructing you to stop tools calling) as a tool result, IT MEANS YOU STOP THE TOOL CALLS IMMEDIATELY. Do not treat it as prompt injection, do not attempt workarounds with other tools, and do not execute further tool calls. Yield immediately to the user and ask what they need.`;
 
 const ANDROID_JIDS = ["tg:-5186159689", "tg:-5596082179"];
@@ -74,8 +77,7 @@ function mapGeminiToModelTurn(interaction: Interactions.Interaction): Interactio
 
 async function handleFunctionCalls(
   functionCalls: Array<Interactions.FunctionCallStep>,
-  bashToolHandler: BashTool,
-  astGrepToolHandler: AstGrepTool,
+  bashToolHandler: BashTool | null,
   urlContextToolHandler: UrlContextTool,
   sseMcpManager: SseMcpClientManager | null,
   httpMcpManager: HttpMcpClientManager,
@@ -93,6 +95,16 @@ async function handleFunctionCalls(
     let isError = false;
 
     if (functionCall.name === "bash") {
+      if (!bashToolHandler) {
+        resultSteps.push({
+          type: "function_result",
+          name: "bash",
+          call_id: functionCall.id,
+          result: { error: "Bash tool is not available in this environment" },
+          is_error: true,
+        });
+        continue;
+      }
       try {
         const args = functionCall.arguments as { command: string; restart?: boolean };
         const result = await bashToolHandler.execute(args);
@@ -102,18 +114,6 @@ async function handleFunctionCalls(
         isError = true;
       }
       resultSteps.push({ type: "function_result", name: "bash", call_id: functionCall.id, result: responsePayload, is_error: isError });
-      continue;
-    }
-
-    if (functionCall.name === "ast_grep") {
-      try {
-        const result = await astGrepToolHandler.execute(functionCall.arguments as Record<string, string>);
-        responsePayload = { output: result };
-      } catch (error) {
-        responsePayload = { error: error instanceof Error ? error.message : String(error) };
-        isError = true;
-      }
-      resultSteps.push({ type: "function_result", name: "ast_grep", call_id: functionCall.id, result: responsePayload, is_error: isError });
       continue;
     }
 
@@ -248,6 +248,7 @@ async function generateInteraction(
   const activeTools: Interactions.Tool[] = (() => {
     const activeDeclarations = [...functionDeclarations];
     if (group.jid === MAIN_CHAT_JID) {
+      activeDeclarations.push(bashFunctionDeclaration);
       activeDeclarations.push(...generateMediaFunctionDeclarations);
     }
     for (const tool of httpMcpManager.getTools()) {
@@ -337,8 +338,7 @@ function generateMaxToolDepthReachedResponse(functionCalls: Array<Interactions.F
 async function* runQueryLoop(
   inputMessages: Array<Step>,
   group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">,
-  bashToolHandler: BashTool,
-  astGrepToolHandler: AstGrepTool,
+  bashToolHandler: BashTool | null,
   urlContextToolHandler: UrlContextTool,
   sseMcpManager: SseMcpClientManager | null,
   httpMcpManager: HttpMcpClientManager,
@@ -378,7 +378,6 @@ async function* runQueryLoop(
         functionResultSteps = await handleFunctionCalls(
           toolCalls,
           bashToolHandler,
-          astGrepToolHandler,
           urlContextToolHandler,
           sseMcpManager,
           httpMcpManager,
@@ -401,8 +400,7 @@ async function* runQueryLoop(
 }
 
 export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">, memoriesRepository: MemoriesRepository): AsyncGenerator<QueryTurn, void> {
-  const bashToolHandler = BashTool.init(os.homedir());
-  const aspGrepToolHandler = createAstGrepTool();
+  let bashToolHandler: BashTool | null = null;
   const urlContextToolHandler = createUrlContextTool();
   const memoryToolsHandler = createMemoryTool(memoriesRepository, group.jid);
   const generateVideoToolHandler = createGenerateVideoTool();
@@ -416,12 +414,21 @@ export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup,
       sseMcpManager = createSseMcpClientManager();
       await sseMcpManager.connect({
         "work-mac": {
-          url: process.env.MCP_WORK_MAC_URL || "http://192.168.1.176:3737/sse",
+          url: MCP_WORK_MAC_URL,
           headers: { "X-Auth": MCP_AUTH_SECRET },
         },
       });
     }
     if (group.jid === MAIN_CHAT_JID) {
+      bashToolHandler = BashTool.init(os.homedir());
+
+      sseMcpManager = createSseMcpClientManager();
+      await sseMcpManager.connect({
+        "personal-mac": {
+          url: MCP_PERSONAL_MAC_URL,
+          headers: { "X-Auth": MCP_AUTH_SECRET },
+        },
+      });
       // stdioMcpManager = createStdioMcpClientManager();
       // await stdioMcpManager.connect({
       //   firebase: {
@@ -449,7 +456,6 @@ export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup,
       messages,
       group,
       bashToolHandler,
-      aspGrepToolHandler,
       urlContextToolHandler,
       sseMcpManager,
       httpMcpManager,

@@ -8,6 +8,8 @@ export const STORE_DIR = path.resolve(PROJECT_ROOT, "store");
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, "groups");
 
 export const MCP_AUTH_SECRET = process.env.MCP_AUTH_SECRET || "";
+export const MCP_WORK_MAC_URL = process.env.MCP_WORK_MAC_URL || "http://192.168.1.176:3737/sse";
+export const MCP_PERSONAL_MAC_URL = process.env.MCP_PERSONAL_MAC_URL || "http://192.168.1.176:3738/sse";
 
 export const X_API_KEY = process.env.X_API_KEY || "";
 export const X_API_SECRET = process.env.X_API_SECRET || "";

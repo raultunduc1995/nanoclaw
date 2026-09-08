@@ -1,25 +1,35 @@
 import type { Interactions } from "@google/genai";
 
-export const functionDeclarations: Interactions.Tool[] = [
-  {
-    type: "function",
-    name: "bash",
-    description: "Execute a single bash command string on the local server.",
-    parameters: {
-      type: "object",
-      properties: {
-        command: {
-          type: "string",
-          description: "The exact bash command line to run.",
-        },
-        restart: {
-          type: "boolean",
-          description: "Whether to restart the bash session (clearing all context) before executing this command.",
-        },
+export const bashFunctionDeclaration: Interactions.Tool = {
+  type: "function",
+  name: "bash",
+  description: `Execute a single bash command string on the local server.
+
+ast-grep (sg) is pre-installed for structural AST code search and rewriting:
+- Search: ast-grep run -l <lang> -p '<pattern>' <path>
+- Rewrite: ast-grep run -l <lang> -p '<pattern>' -r '<rewrite>' -U <path>
+  Flags: -p/--pattern, -r/--rewrite, -l/--lang (typescript, kotlin, etc.), -U/--update-all (apply in-place without asking).
+- Metavariables: $VAR matches single AST node, $$$VAR matches multiple nodes/statements/args.
+- Shell quoting: ALWAYS use single quotes ('...') around patterns and rewrites so bash does not expand metavariables.
+- Complex relational rules: Write YAML rule to /tmp/rule.yaml and execute:
+  ast-grep scan -r /tmp/rule.yaml -U <path>`,
+  parameters: {
+    type: "object",
+    properties: {
+      command: {
+        type: "string",
+        description: "The exact bash command line to run.",
       },
-      required: ["command"],
+      restart: {
+        type: "boolean",
+        description: "Whether to restart the bash session (clearing all context) before executing this command.",
+      },
     },
+    required: ["command"],
   },
+};
+
+export const functionDeclarations: Interactions.Tool[] = [
   {
     type: "function",
     name: "fetch_url_context",
@@ -98,62 +108,6 @@ export const functionDeclarations: Interactions.Tool[] = [
         },
       },
       required: ["id"],
-    },
-  },
-  {
-    type: "function",
-    name: "ast_grep",
-    description: `Execute structural code search, patching, and code outlining using Abstract Syntax Trees (ast-grep/sg). EXCLUSIVELY USE FOR FILES THAT CONTAIN CODE (do not use for markdown or plain text).
-  Usage & Combinations:
-  - rule: Structural search and replace using JSON logic (e.g. pattern, inside, has, not).
-    - You must provide 'language' (e.g., 'typescript', 'kotlin').
-    - 'rule' is a JSON object with conditions. Metavariables: $VAR (single node), $$$VAR (multiple nodes).
-    - 'fix' is an optional string to replace matches.
-    Example rule (JSON): { "pattern": "console.log($$$)", "inside": { "kind": "method_definition" } }
-  - outline: Map code structure without reading full files.
-    - Map directory API surface: path: 'dir/', items: 'exports', view: 'names'
-    - Trace dependencies: path: 'dir/', items: 'imports', view: 'signatures'
-    - Map local file structure: path: 'file.ts', items: 'structure', view: 'digest'
-    - Zoom into symbol types: path: 'file.ts', type: 'class,function', view: 'expanded'
-    Example outline args (JSON): { "command": "outline", "path": "src/", "items": "exports", "view": "signatures" }`,
-    parameters: {
-      type: "object",
-      properties: {
-        command: {
-          type: "string",
-          description: "The ast-grep command to run.",
-          enum: ["rule", "outline"],
-        },
-        path: {
-          type: "string",
-          description: "The file or directory path to search/modify.",
-        },
-        language: {
-          type: "string",
-          description: "The language of the target files (e.g. 'typescript', 'kotlin'). Required for 'rule'.",
-        },
-        rule: {
-          type: "object",
-          description: "The pure JSON object representing the ast-grep rule conditions (e.g. { pattern: '...' }). Required for 'rule'.",
-        },
-        fix: {
-          type: "string",
-          description: "Optional replacement string for matches found by the rule (used for patching).",
-        },
-        items: {
-          type: "string",
-          description: "Top-level items to outline. Options: 'structure', 'exports', 'imports', 'all' (used for 'outline').",
-        },
-        view: {
-          type: "string",
-          description: "Outline detail level. Options: 'names', 'signatures', 'digest', 'expanded' (used for 'outline').",
-        },
-        type: {
-          type: "string",
-          description: "Comma-separated list of top-level symbol types to filter (e.g. 'class,function') (used for 'outline').",
-        },
-      },
-      required: ["command", "path"],
     },
   },
   {
