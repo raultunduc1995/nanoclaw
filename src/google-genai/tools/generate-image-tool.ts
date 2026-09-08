@@ -1,10 +1,10 @@
 import { Interactions } from "@google/genai";
 import path from "node:path";
-import ai from "../genai-client.js";
-import { logger } from "../../core/utils/logger.js";
 import fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import ai from "../genai-client.js";
+import { logger, STORE_DIR } from "../../core/utils/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -70,14 +70,19 @@ export const createGenerateImageTool = (): GenerateImageTool => {
         }
 
         const extension = imageOutput.mime_type === "image/png" ? "png" : "jpg";
-        const downloadPath = path.join("/Users/raultunduc/Desktop", `generated_image_${Date.now()}.${extension}`);
+        const mediaDir = path.join(STORE_DIR, "media");
+        await fs.mkdir(mediaDir, { recursive: true });
+        const downloadPath = path.join(mediaDir, `generated_image_${Date.now()}.${extension}`);
         const buffer = Buffer.from(imageOutput.data, "base64");
         await fs.writeFile(downloadPath, buffer);
-        try {
-          await execFileAsync("xattr", ["-w", "com.apple.metadata:kMDItemFinderComment", prompt, downloadPath]);
-          await execFileAsync("xattr", ["-w", "com.apple.metadata:kMDItemDescription", prompt, downloadPath]);
-        } catch (metaError) {
-          logger.warn({ metaError, downloadPath }, "Failed to attach xattr metadata");
+
+        if (process.platform === "darwin") {
+          try {
+            await execFileAsync("xattr", ["-w", "com.apple.metadata:kMDItemFinderComment", prompt, downloadPath]);
+            await execFileAsync("xattr", ["-w", "com.apple.metadata:kMDItemDescription", prompt, downloadPath]);
+          } catch (metaError) {
+            logger.warn({ metaError, downloadPath }, "Failed to attach xattr metadata");
+          }
         }
 
         logger.debug({ downloadPath, mimeType: imageOutput.mime_type }, "Image generated and saved successfully");

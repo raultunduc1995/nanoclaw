@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
+import fs from "node:fs/promises";
 import { FileState } from "@google/genai";
 import ai from "../genai-client.js";
-import { logger, delay } from "../../core/utils/index.js";
+import { logger, delay, STORE_DIR } from "../../core/utils/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -39,7 +40,9 @@ export const createGenerateVideoTool = (): GenerateVideoTool => {
         }
 
         const fileName = `files/${fileIdMatch[1]}`;
-        const downloadPath = path.join("/Users/raultunduc/Desktop", `generated_video_${Date.now()}.mp4`);
+        const mediaDir = path.join(STORE_DIR, "media");
+        await fs.mkdir(mediaDir, { recursive: true });
+        const downloadPath = path.join(mediaDir, `generated_video_${Date.now()}.mp4`);
 
         while (true) {
           const fileInfo = await ai.files.get({ name: fileName })!;
@@ -49,11 +52,14 @@ export const createGenerateVideoTool = (): GenerateVideoTool => {
         }
 
         await ai.files.download({ file: fileName, downloadPath });
-        try {
-          await execFileAsync("xattr", ["-w", "com.apple.metadata:kMDItemFinderComment", prompt, downloadPath]);
-          await execFileAsync("xattr", ["-w", "com.apple.metadata:kMDItemDescription", prompt, downloadPath]);
-        } catch (metaError) {
-          logger.warn({ metaError, downloadPath }, "Failed to attach xattr metadata");
+
+        if (process.platform === "darwin") {
+          try {
+            await execFileAsync("xattr", ["-w", "com.apple.metadata:kMDItemFinderComment", prompt, downloadPath]);
+            await execFileAsync("xattr", ["-w", "com.apple.metadata:kMDItemDescription", prompt, downloadPath]);
+          } catch (metaError) {
+            logger.warn({ metaError, downloadPath }, "Failed to attach xattr metadata");
+          }
         }
 
         logger.debug({ downloadPath, uri: videoOutput.uri }, "Video generated and downloaded successfully");
