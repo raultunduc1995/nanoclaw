@@ -13,7 +13,7 @@ import { BashTool } from "./tools/bash-tool.js";
 import { createSseMcpClientManager, type SseMcpClientManager } from "./tools/sse-mcp-client.js";
 import { createHttpMcpClientManager, type HttpMcpClientManager } from "./tools/http-mcp-client.js";
 import { type StdioMcpClientManager } from "./tools/stdio-mcp-client.js";
-import { GROUPS_DIR, MCP_AUTH_SECRET, DEVELOPER_KNOWLEDGE_API_KEY, CONTEXT7_API_KEY, MCP_WORK_MAC_URL, MCP_PERSONAL_MAC_URL } from "../core/utils/config.js";
+import { GROUPS_DIR, MCP_AUTH_SECRET, DEVELOPER_KNOWLEDGE_API_KEY, CONTEXT7_API_KEY, MCP_WORK_MAC_URL } from "../core/utils/config.js";
 import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-tool.js";
 import { createMemoryTool, type MemoryTools } from "./tools/memory-tool.js";
 import { createGenerateVideoTool, type GenerateVideoTool } from "./tools/generate-video-tool.js";
@@ -440,14 +440,6 @@ export async function* query(
       bashToolHandler = BashTool.init(os.homedir());
     }
     if (group.jid === MAIN_CHAT_JID) {
-      sseMcpManager = createSseMcpClientManager();
-      await sseMcpManager.connect({
-        "personal-mac": {
-          url: MCP_PERSONAL_MAC_URL,
-          headers: { "X-Auth": MCP_AUTH_SECRET },
-        },
-      });
-
       // stdioMcpManager = createStdioMcpClientManager();
       // await stdioMcpManager.connect({
       //   firebase: {
