@@ -41,9 +41,9 @@ export type InboundMessage = TextMessage | ImageMessage | VideoMessage | VoiceMe
 export interface ChannelOpts {
   type: "telegram";
   onInboundMessage: (message: InboundMessage, group: RegisteredGroup) => void;
-  onCommand: (command: "compact" | "stop" | "temp", group: RegisteredGroup, payload?: string) => void;
+  onCommand: (command: "compact" | "stop" | "temp" | "thinking", group: RegisteredGroup, payload?: string) => void;
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
-  registerNewGroup: (jid: string, group: Omit<RegisteredGroup, "jid">) => void;
+  registerNewGroup: (jid: string, group: Omit<RegisteredGroup, "jid" | "thinkingLevel">) => void;
 }
 
 export interface Channel {

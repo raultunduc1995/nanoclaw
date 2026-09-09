@@ -7,19 +7,22 @@ import { logger } from "../utils/logger.js";
 import type { GroupRow, GroupsLocalResource } from "../db/index.js";
 import { assertValidGroupFolder, ensureWithinBase } from "../utils/index.js";
 
+export type ThinkingLevel = "low" | "medium" | "high";
+
 export interface RegisteredGroup {
   jid: string;
   name: string;
   folder: string;
   addedAt: string;
   temperature: number;
+  thinkingLevel: ThinkingLevel;
 }
 
 export interface GroupsRepository {
   getAllAsRecord: () => Record<string, RegisteredGroup>;
   getAllJids: () => Set<string>;
   getByJid: (jid: string) => RegisteredGroup | undefined;
-  register: (jid: string, group: Omit<RegisteredGroup, "jid">) => Promise<void>;
+  register: (jid: string, group: Omit<RegisteredGroup, "jid" | "thinkingLevel">) => Promise<void>;
   updateGroup: (jid: string, group: RegisteredGroup) => Promise<void>;
 }
 
@@ -40,7 +43,7 @@ export const createGroupsRepository = async (resource: GroupsLocalResource): Pro
     register: async (jid, group) => {
       logger.debug({ jid, name: group.name, folder: group.folder }, "Register group...");
       const groupDir = resolveGroupFolderPath(group.folder);
-      await saveGroup(jid, { ...group, jid });
+      await saveGroup(jid, { ...group, jid, thinkingLevel: "medium" });
       createGroupDirectory(groupDir);
     },
     updateGroup: async (jid, group) => {
@@ -55,6 +58,7 @@ const toRegisteredGroup = (row: GroupRow): RegisteredGroup => ({
   folder: row.folder,
   addedAt: row.added_at,
   temperature: row.temperature,
+  thinkingLevel: "medium",
 });
 
 const toGroupRow = (jid: string, group: RegisteredGroup): GroupRow => ({

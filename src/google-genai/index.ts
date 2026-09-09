@@ -241,7 +241,7 @@ async function handleFunctionCalls(
 
 async function generateInteraction(
   steps: Interactions.Step[],
-  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">,
+  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">,
   httpMcpManager: HttpMcpClientManager,
   sseMcpManager: SseMcpClientManager | null,
   stdioMcpManager: StdioMcpClientManager | null,
@@ -290,7 +290,7 @@ ${contextInstruction}`;
     store: false,
     background: false,
     generation_config: {
-      thinking_level: "high",
+      thinking_level: group.thinkingLevel,
       thinking_summaries: "none",
       tool_choice: "auto",
     },
@@ -298,7 +298,10 @@ ${contextInstruction}`;
   });
 }
 
-function generateToolStopResponse(functionCalls: Array<Interactions.FunctionCallStep>, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">): Array<Interactions.FunctionResultStep> {
+function generateToolStopResponse(
+  functionCalls: Array<Interactions.FunctionCallStep>,
+  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">,
+): Array<Interactions.FunctionResultStep> {
   const resultSteps: Array<Interactions.FunctionResultStep> = [];
 
   for (const functionCall of functionCalls) {
@@ -340,7 +343,7 @@ function generateMaxToolDepthReachedResponse(functionCalls: Array<Interactions.F
 
 async function* runQueryLoop(
   inputMessages: Array<Step>,
-  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">,
+  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">,
   bashToolHandler: BashTool | null,
   urlContextToolHandler: UrlContextTool,
   sseMcpManager: SseMcpClientManager | null,
@@ -402,7 +405,11 @@ async function* runQueryLoop(
   }
 }
 
-export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">, memoriesRepository: MemoriesRepository): AsyncGenerator<QueryTurn, void> {
+export async function* query(
+  messages: Array<Step>,
+  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">,
+  memoriesRepository: MemoriesRepository,
+): AsyncGenerator<QueryTurn, void> {
   let bashToolHandler: BashTool | null = null;
   const urlContextToolHandler = createUrlContextTool();
   const memoryToolsHandler = createMemoryTool(memoriesRepository, group.jid);

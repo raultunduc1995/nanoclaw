@@ -2,6 +2,7 @@ import { logger } from "./core/utils/index.js";
 import { createChannelsRegistry, type ChannelsRegistry, type TelegramChannelOpts, type InboundMessage } from "./channels/index.js";
 import { initLocalDatabase } from "./core/db/index.js";
 import { createGroupsRepository, createHistoryRepository, createMemoriesRepository, type GroupsRepository, type RegisteredGroup } from "./core/repositories/index.js";
+import type { ThinkingLevel } from "./core/repositories/groups-repository.js";
 // import { startVoiceServer } from "./voice/index.js";
 import { type Step } from "./google-genai/index.js";
 import { createGeminiAgent, type GeminiAgent, type GeminiAgentInput } from "./google-agent/index.js";
@@ -103,6 +104,21 @@ const registerChannels = async () => {
         } else {
           channelsRegistry.findChannel(group.jid)?.sendMessage(group.jid, `⚠️ Invalid temperature. Please provide a number between 0.0 and 2.0 (e.g., /temp 1.5)`);
         }
+        return;
+      }
+      if (command === "thinking") {
+        const level = payload?.trim().toLowerCase();
+        const validLevels: ThinkingLevel[] = ["low", "medium", "high"];
+        if (level && validLevels.includes(level as ThinkingLevel)) {
+          await groupsRepo.updateGroup(group.jid, { ...group, thinkingLevel: level as ThinkingLevel });
+          channelsRegistry.findChannel(group.jid)?.sendMessage(group.jid, `🧠 Thinking level updated to ${level}`);
+          return;
+        }
+        channelsRegistry.findChannel(group.jid)?.sendMessage(
+          group.jid,
+          `🧠 Current thinking level: ${group.thinkingLevel || "medium"}
+Usage: /thinking <low|medium|high>`,
+        );
         return;
       }
     },

@@ -9,7 +9,7 @@ import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/i
 export type { GeminiAgentInput } from "./types.js";
 
 export interface GeminiAgent {
-  runCompaction: (group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">) => Promise<void>;
+  runCompaction: (group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">) => Promise<void>;
   runQuery: (input: GeminiAgentInput) => Promise<void>;
   interruptAgentLoop: (jid: string) => void;
 }
@@ -133,7 +133,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     }
   };
 
-  const runCompaction = async (group: Pick<RegisteredGroup, "jid" | "folder" | "temperature">) => {
+  const runCompaction = async (group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">) => {
     const chatJid: string = group.jid;
     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 
@@ -179,7 +179,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     const output = usage.total_output_tokens ?? 0;
     await onOutput({
       chatJid,
-      message: `Total: ${totalTokens}\nCached: ${cachedTokens}\nUncached-Input: ${uncached}\nOutput: ${output}`,
+      message: `Group JID: ${input.group.jid}\nFolder: ${input.group.folder}\nThinking Level: ${input.group.thinkingLevel}\nTotal: ${totalTokens}\nCached: ${cachedTokens}\nUncached-Input: ${uncached}\nOutput: ${output}`,
     });
     if (totalTokens >= 300_000) await runCompaction(input.group);
   };

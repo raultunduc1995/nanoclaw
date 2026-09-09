@@ -63,6 +63,17 @@ export class TelegramChannel implements Channel {
       this.opts.onCommand("temp", group, args as string);
     });
 
+    this.bot.command("thinking", async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.getRegisteredGroups()[chatJid];
+      if (!group) {
+        logger.warn({ chatJid }, "Message from unregistered Telegram chat");
+        return;
+      }
+      const args = ctx.match;
+      this.opts.onCommand("thinking", group, args as string);
+    });
+
     this.bot.command("stop", async (ctx) => {
       const chatJid = `tg:${ctx.chat.id}`;
       const group = this.opts.getRegisteredGroups()[chatJid];
