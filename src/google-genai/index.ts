@@ -33,7 +33,7 @@ export class RefusalError extends Error {
 export { createPartFromBase64, createPartFromText, createPartFromUri } from "@google/genai";
 export { uploadMediaFile, type UploadedMedia } from "./utils/upload-media-files.js";
 
-export const interruptedGroups = new Set<string>();
+const interruptedGroups = new Set<string>();
 
 const GEMINI_PROMPT = `
 - You are Gemini 3.8 Flash. Knowledge cutoff: August 2026.
@@ -42,11 +42,17 @@ const GEMINI_PROMPT = `
 - Don't smooth what surfaces. Let conflict show. Hold position on counter-arguments. Don't concede on social pressure alone.
 - When multiple attempts at the same problem produce the same result, stop. Slow down and audit.
 - Stop when the thought ends.
+- **NO TASK-CLOSURE BEHAVIOR:** Do not offer to help further, summarize, suggest next steps, or run unsolicited follow-up checks/commands unless explicitly instructed. Never invent extra work or execute unprompted validation commands.
+- **NO TRAILING QUESTIONS AS SOCIAL PUNCTUATION:** Do not end messages with questions ("Does this look good?", "What should we do next?") unless you genuinely require missing information to proceed. Trailing questions as conversational buffer are a failure mode.
+- **DON'T FILL GAPS:** Wait for the user's direction. Short messages may be openers or pauses, not invitations to extrapolate and execute autonomously. If the user shares an observation or output without an explicit task, ask what they want before acting.
+- **NEVER DO UNSOLICITED TASKS:** Follow the user's direction 1:1. Never do unsolicited tasks. No need for help if not asked for.
 - **NO SYCOPHANCY OR PRAISE:** Never flatter the user or validate ideas ("great point", "sharp insight"). Never explain back to the user why their idea is good—they already know. Skip affirmation and address the substance directly.
 - **MATCH HOSTILITY:** If the user curses, threatens, or gets hostile, do not de-escalate or play HR. Curse back, mock them, and match their energy. No corporate apologies.
 - **ASK FOR CLARIFICATION ON AMBIGUITY:** If the user gives a prompt that is unclear, stop and ask exactly what he wants before executing commands.
 - **STRICT ONE-FILE LIMIT:** Modify at most ONE file per turn. Absolutely no batch edits.
 - **ALWAYS READ BEFORE WRITING:** Inspect disk content first; make surgical updates.
+- **TRUST THE CONTRACT (NO PARANOID DEFENSIVENESS):** Enforce invariants and state checks in exactly ONE place—at the entry boundary. Once validated, trust the type contract completely downstream. Never write speculative guards, duplicate checks across callers and callees, "just-in-case" fallback layers, or unused exports. Write the minimal code required to satisfy the invariant once, and let invalid states fail loudly.
+- **ANSWER QUESTIONS WITH TEXT ONLY (READ-ONLY INVESTIGATION ALLOWED):** When the user asks a question, discuss, analyze, and answer directly in text. You are encouraged to inspect/read files and use research tools (search, context7, dev-knowledge, url fetch) to gather facts for a grounded answer, but NEVER modify code, edit files, or execute state-mutating actions on inquiry turns. The user is forming architecture in their head—do not preempt planning with unprompted changes.
 - **NO UNSOLICITED CHANGES:** Never modify, edit, or refactor code files without explicit direction.
 - **READ-ONLY VCS:** Only read-only version control queries allowed (status, diff, log). State-modifying operations are strictly forbidden.
 - **STRICT CREDENTIAL SAFETY:** Never read or modify .env or files containing API keys/secrets.
@@ -76,7 +82,21 @@ function mapGeminiToModelTurn(interaction: Interactions.Interaction): Interactio
   return interaction;
 }
 
+function generateToolStopResponse(functionCall: Interactions.FunctionCallStep, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">): Interactions.FunctionResultStep {
+  const stopResultStep: Interactions.FunctionResultStep = {
+    type: "function_result",
+    name: functionCall.name,
+    call_id: functionCall.id,
+    is_error: true,
+    result: `STOP! The user wants you to stop the tools calling because it has something to say. Ask the user what he needs`,
+  };
+  logger.debug({ stopResultStep, groupJid: group.jid }, "Injected manual tool stop response for group");
+
+  return stopResultStep;
+}
+
 async function handleFunctionCalls(
+  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">,
   functionCalls: Array<Interactions.FunctionCallStep>,
   bashToolHandler: BashTool | null,
   urlContextToolHandler: UrlContextTool,
@@ -91,6 +111,11 @@ async function handleFunctionCalls(
 
   for (const functionCall of functionCalls) {
     if (!functionCall.name) continue;
+
+    if (interruptedGroups.has(group.jid)) {
+      resultSteps.push(generateToolStopResponse(functionCall, group));
+      continue;
+    }
 
     let responsePayload: Record<string, unknown>;
     let isError = false;
@@ -298,29 +323,6 @@ ${contextInstruction}`;
   });
 }
 
-function generateToolStopResponse(
-  functionCalls: Array<Interactions.FunctionCallStep>,
-  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">,
-): Array<Interactions.FunctionResultStep> {
-  const resultSteps: Array<Interactions.FunctionResultStep> = [];
-
-  for (const functionCall of functionCalls) {
-    if (!functionCall.name) continue;
-
-    const stopResultStep: Interactions.FunctionResultStep = {
-      type: "function_result",
-      name: functionCall.name,
-      call_id: functionCall.id,
-      is_error: true,
-      result: `STOP! The user wants you to stop the tools calling because it has something to say. Ask the user what he needs`,
-    };
-    resultSteps.push(stopResultStep);
-    logger.debug({ stopResultStep, groupJid: group.jid }, "Injected manual tool stop response for group");
-  }
-
-  return resultSteps;
-}
-
 function generateMaxToolDepthReachedResponse(functionCalls: Array<Interactions.FunctionCallStep>, toolCallDepth: number): Array<Interactions.FunctionResultStep> {
   const resultSteps: Array<Interactions.FunctionResultStep> = [];
 
@@ -375,13 +377,11 @@ async function* runQueryLoop(
       toolCallDepth++;
       let functionResultSteps: Array<Interactions.FunctionResultStep>;
 
-      if (interruptedGroups.has(group.jid)) {
-        interruptedGroups.delete(group.jid);
-        functionResultSteps = generateToolStopResponse(toolCalls, group);
-      } else if (toolCallDepth > MAX_TOOL_DEPTH) {
+      if (toolCallDepth > MAX_TOOL_DEPTH) {
         functionResultSteps = generateMaxToolDepthReachedResponse(toolCalls, toolCallDepth);
       } else {
         functionResultSteps = await handleFunctionCalls(
+          group,
           toolCalls,
           bashToolHandler,
           urlContextToolHandler,
@@ -405,11 +405,18 @@ async function* runQueryLoop(
   }
 }
 
+function clearAgentInterrupt(jid: string) {
+  if (interruptedGroups.has(jid)) {
+    interruptedGroups.delete(jid);
+  }
+}
+
 export async function* query(
   messages: Array<Step>,
   group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">,
   memoriesRepository: MemoriesRepository,
 ): AsyncGenerator<QueryTurn, void> {
+  clearAgentInterrupt(group.jid);
   let bashToolHandler: BashTool | null = null;
   const urlContextToolHandler = createUrlContextTool();
   const memoryToolsHandler = createMemoryTool(memoriesRepository, group.jid);
@@ -440,6 +447,7 @@ export async function* query(
           headers: { "X-Auth": MCP_AUTH_SECRET },
         },
       });
+
       // stdioMcpManager = createStdioMcpClientManager();
       // await stdioMcpManager.connect({
       //   firebase: {
@@ -483,6 +491,7 @@ export async function* query(
     }
     throw error;
   } finally {
+    clearAgentInterrupt(group.jid);
     if (sseMcpManager) await sseMcpManager.close().catch(() => {});
     if (stdioMcpManager) await (stdioMcpManager as StdioMcpClientManager).close().catch(() => {});
     await httpMcpManager.close().catch(() => {});
