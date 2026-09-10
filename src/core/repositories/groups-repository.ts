@@ -14,7 +14,6 @@ export interface RegisteredGroup {
   name: string;
   folder: string;
   addedAt: string;
-  temperature: number;
   thinkingLevel: ThinkingLevel;
 }
 
@@ -57,7 +56,6 @@ const toRegisteredGroup = (row: GroupRow): RegisteredGroup => ({
   name: row.name,
   folder: row.folder,
   addedAt: row.added_at,
-  temperature: row.temperature,
   thinkingLevel: "medium",
 });
 
@@ -66,7 +64,6 @@ const toGroupRow = (jid: string, group: RegisteredGroup): GroupRow => ({
   name: group.name,
   folder: group.folder,
   added_at: group.addedAt,
-  temperature: group.temperature,
 });
 
 function resolveGroupFolderPath(folder: string): string {

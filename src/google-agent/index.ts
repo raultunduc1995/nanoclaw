@@ -1,7 +1,7 @@
 /* eslint-disable no-catch-all/no-catch-all */
 import { Temporal } from "@js-temporal/polyfill";
 import { query, RefusalError, uploadMediaFile, interruptAgentLoop } from "../google-genai/index.js";
-import type { QueryTurn, Content, Step } from "../google-genai/index.js";
+import type { QueryTurn, Content, Step, UserInputStep } from "../google-genai/index.js";
 import { logger, TIMEZONE } from "../core/utils/index.js";
 import type { GeminiAgentInput } from "./types.js";
 import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
@@ -9,7 +9,7 @@ import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/i
 export type { GeminiAgentInput } from "./types.js";
 
 export interface GeminiAgent {
-  runCompaction: (group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">) => Promise<void>;
+  runCompaction: (group: Pick<RegisteredGroup, "jid" | "folder" | "thinkingLevel">) => Promise<void>;
   runQuery: (input: GeminiAgentInput) => Promise<void>;
   interruptAgentLoop: (jid: string) => void;
 }
@@ -17,6 +17,18 @@ export interface GeminiAgent {
 const formatDateTime = (): string => Temporal.Now.zonedDateTimeISO(TIMEZONE).toPlainDateTime().toString({ fractionalSecondDigits: 0 });
 
 const wrapMessage = (senderName: string, content: string): string => `[${formatDateTime()}] ${senderName}:\n${content}`;
+
+const MEDIA_PLACEHOLDERS: Record<string, string> = {
+  image: "[Attached image - this can be ignored]",
+  video: "[Attached video - this can be ignored]",
+  audio: "[Attached audio - this can be ignored]",
+  document: "[Attached document - this can be ignored]",
+};
+
+const sanitizeContentForStorage = (content: Content): Content => {
+  const placeholder = MEDIA_PLACEHOLDERS[content.type];
+  return placeholder ? { type: "text", text: placeholder } : content;
+};
 
 interface GeminiAgentDeps {
   memoriesRepository: MemoriesRepository;
@@ -33,7 +45,10 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
 
   const appendToHistory = async (chatJid: string, history: Array<Step>, entry: Step) => {
     history.push(entry);
-    await deps.appendHistory(chatJid, history.length, entry);
+
+    const historyEntry: Step = entry.type === "user_input" && entry.content?.length ? { ...entry, content: entry.content.map(sanitizeContentForStorage) } : entry;
+
+    await deps.appendHistory(chatJid, history.length, historyEntry);
   };
 
   const handleResponse = async (chatJid: string, history: Array<Step>, response: QueryTurn) => {
@@ -113,7 +128,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       }
       if (content.length === 0) return null;
 
-      const userStep: Step = { type: "user_input", content };
+      const userStep: UserInputStep = { type: "user_input", content };
 
       logger.debug({ userStep }, "Running user query");
       await appendToHistory(chatJid, history, userStep);
@@ -133,7 +148,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
     }
   };
 
-  const runCompaction = async (group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">) => {
+  const runCompaction = async (group: Pick<RegisteredGroup, "jid" | "folder" | "thinkingLevel">) => {
     const chatJid: string = group.jid;
     logger.warn({ chatJid }, "Total prompt tokens approaching model limit, running compaction");
 

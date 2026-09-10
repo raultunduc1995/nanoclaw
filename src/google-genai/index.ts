@@ -22,6 +22,7 @@ import { createGenerateImageTool, type GenerateImageTool, type ImageAspectRatio 
 export type Interaction = Interactions.Interaction;
 export type Content = Interactions.Content;
 export type Step = Interactions.Step;
+export type UserInputStep = Interactions.UserInputStep;
 export type QueryTurn = Interactions.Interaction | Array<Interactions.FunctionResultStep>;
 export class RefusalError extends Error {
   constructor(message = "Gemini refused to process this request due to safety or policy blocks") {
@@ -82,7 +83,7 @@ function mapGeminiToModelTurn(interaction: Interactions.Interaction): Interactio
   return interaction;
 }
 
-function generateToolStopResponse(functionCall: Interactions.FunctionCallStep, group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">): Interactions.FunctionResultStep {
+function generateToolStopResponse(functionCall: Interactions.FunctionCallStep, group: Pick<RegisteredGroup, "jid" | "folder" | "thinkingLevel">): Interactions.FunctionResultStep {
   const stopResultStep: Interactions.FunctionResultStep = {
     type: "function_result",
     name: functionCall.name,
@@ -96,7 +97,7 @@ function generateToolStopResponse(functionCall: Interactions.FunctionCallStep, g
 }
 
 async function handleFunctionCalls(
-  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">,
+  group: Pick<RegisteredGroup, "jid" | "folder" | "thinkingLevel">,
   functionCalls: Array<Interactions.FunctionCallStep>,
   bashToolHandler: BashTool | null,
   urlContextToolHandler: UrlContextTool,
@@ -266,7 +267,7 @@ async function handleFunctionCalls(
 
 async function generateInteraction(
   steps: Interactions.Step[],
-  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">,
+  group: Pick<RegisteredGroup, "jid" | "folder" | "thinkingLevel">,
   httpMcpManager: HttpMcpClientManager,
   sseMcpManager: SseMcpClientManager | null,
   stdioMcpManager: StdioMcpClientManager | null,
@@ -345,7 +346,7 @@ function generateMaxToolDepthReachedResponse(functionCalls: Array<Interactions.F
 
 async function* runQueryLoop(
   inputMessages: Array<Step>,
-  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">,
+  group: Pick<RegisteredGroup, "jid" | "folder" | "thinkingLevel">,
   bashToolHandler: BashTool | null,
   urlContextToolHandler: UrlContextTool,
   sseMcpManager: SseMcpClientManager | null,
@@ -411,11 +412,7 @@ function clearAgentInterrupt(jid: string) {
   }
 }
 
-export async function* query(
-  messages: Array<Step>,
-  group: Pick<RegisteredGroup, "jid" | "folder" | "temperature" | "thinkingLevel">,
-  memoriesRepository: MemoriesRepository,
-): AsyncGenerator<QueryTurn, void> {
+export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup, "jid" | "folder" | "thinkingLevel">, memoriesRepository: MemoriesRepository): AsyncGenerator<QueryTurn, void> {
   clearAgentInterrupt(group.jid);
   let bashToolHandler: BashTool | null = null;
   const urlContextToolHandler = createUrlContextTool();

@@ -96,16 +96,6 @@ const registerChannels = async () => {
         });
         return;
       }
-      if (command === "temp" && payload) {
-        const temp = parseFloat(payload);
-        if (!isNaN(temp) && temp >= 0.0 && temp <= 2.0) {
-          await groupsRepo.updateGroup(group.jid, { ...group, temperature: temp });
-          channelsRegistry.findChannel(group.jid)?.sendMessage(group.jid, `🌡️ Temperature updated to ${temp}`);
-        } else {
-          channelsRegistry.findChannel(group.jid)?.sendMessage(group.jid, `⚠️ Invalid temperature. Please provide a number between 0.0 and 2.0 (e.g., /temp 1.5)`);
-        }
-        return;
-      }
       if (command === "thinking") {
         const level = payload?.trim().toLowerCase();
         const validLevels: ThinkingLevel[] = ["low", "medium", "high"];
