@@ -116,7 +116,7 @@ export class TelegramChannel implements Channel {
       this.opts.onInboundMessage({ kind: "image", id: msgId, chatJid, userName, prompt: content, mimeType, blob }, group);
     });
 
-    this.bot.on("message:video", async (ctx) => {
+    this.bot.on(["message:video", "message:animation"], async (ctx) => {
       const chatJid = `tg:${ctx.chat.id}`;
       const group = this.opts.getRegisteredGroups()[chatJid];
       if (!group) {
@@ -124,10 +124,13 @@ export class TelegramChannel implements Channel {
         return;
       }
 
+      const msg = ctx.message;
+      const video = "video" in msg && msg.video ? msg.video : "animation" in msg && msg.animation ? msg.animation : null;
+      if (!video) return;
+
       const userName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || "Unknown";
-      const msgId = ctx.message.message_id.toString();
-      const content = ctx.message.caption || "";
-      const video = ctx.message.video;
+      const msgId = msg.message_id.toString();
+      const content = msg.caption || "";
 
       const mimeType = (video.mime_type || "video/mp4") as VideoMimeType;
       const validVideoMimeTypes = ["video/mp4", "video/mpeg", "video/quicktime", "video/webm"];
@@ -180,23 +183,32 @@ export class TelegramChannel implements Channel {
 
       const doc = ctx.message.document;
       const mimeType = doc.mime_type;
-      if (mimeType !== "application/pdf") {
-        logger.warn({ chatJid, mimeType }, "Unsupported document mime type received from Telegram (only PDF supported)");
-        return;
-      }
-
       const userName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id.toString() || "Unknown";
       const msgId = ctx.message.message_id.toString();
       const content = ctx.message.caption || "";
       const fileId = doc.file_id;
 
-      const blob = await downloadTelegramFileAsBlob(ctx.api, fileId, mimeType);
-      if (!blob) {
-        logger.error({ chatJid, fileId }, "Failed to download Telegram PDF document");
+      if (mimeType && (mimeType.startsWith("video/") || mimeType === "image/gif")) {
+        const videoMime: VideoMimeType = "video/mp4";
+        const blob = await downloadTelegramFileAsBlob(ctx.api, fileId, videoMime);
+        if (!blob) {
+          logger.error({ chatJid, fileId }, "Failed to download Telegram video document");
+          return;
+        }
+        this.opts.onInboundMessage({ kind: "video", id: msgId, chatJid, userName, prompt: content, mimeType: videoMime, blob }, group);
         return;
       }
 
-      this.opts.onInboundMessage({ kind: "pdf", id: msgId, chatJid, userName, prompt: content, mimeType, blob }, group);
+      if (mimeType && mimeType === "application/pdf") {
+        const blob = await downloadTelegramFileAsBlob(ctx.api, fileId, mimeType);
+        if (!blob) {
+          logger.error({ chatJid, fileId }, "Failed to download Telegram PDF document");
+          return;
+        }
+
+        this.opts.onInboundMessage({ kind: "pdf", id: msgId, chatJid, userName, prompt: content, mimeType, blob }, group);
+        return;
+      }
     });
 
     // Handle errors gracefully
