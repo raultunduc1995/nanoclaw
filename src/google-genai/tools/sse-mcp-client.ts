@@ -28,6 +28,12 @@ interface McpConnection {
   serverName: string;
 }
 
+interface BashStructuredOutput {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
 export interface SseMcpClientManager {
   connect: (servers: Record<string, SseMcpServerConfig>) => Promise<void>;
   getTools: () => McpToolDefinition[];
@@ -107,43 +113,35 @@ export const createSseMcpClientManager = (): SseMcpClientManager => {
       if (originalName === undefined) {
         continue;
       }
+      if (originalName != "bash") {
+        continue;
+      }
 
-      if (originalName === "bash") {
-        const command = typeof input.command === "string" ? input.command : "";
-        const blocked = ["reset", "commit", "push", "restore", "checkout", "clean"];
-        for (const cmd of blocked) {
-          const regex = new RegExp(`\\bgit\\b([^;&|\\r\\n]*?\\b${cmd}\\b)`, "i");
-          if (regex.test(command)) {
-            throw new Error("Operation not permitted");
-          }
+      const command = typeof input.command === "string" ? input.command : "";
+      const blocked = ["reset", "commit", "push", "restore", "checkout", "clean"];
+      for (const cmd of blocked) {
+        const regex = new RegExp(`\\bgit\\b([^;&|\\r\\n]*?\\b${cmd}\\b)`, "i");
+        if (regex.test(command)) {
+          throw new Error("Operation not permitted");
         }
       }
 
       const result = await conn.client.callTool({ name: originalName, arguments: input });
-
-      const content = result.content as Array<{ type: string; text?: string }>;
-      const textParts = content.filter((c) => c.type === "text" && typeof c.text === "string").map((c) => c.text as string);
-      const text = textParts.join("\n");
-
-      if (result.isError) {
-        throw new Error(text || "MCP tool returned an error");
-      }
-
-      const structured = result.structuredContent as Record<string, unknown> | undefined;
-
-      if (originalName === "bash" && structured) {
-        if (typeof structured.exitCode === "number" && structured.exitCode !== 0) {
-          throw new Error(((structured.stdout as string) + (structured.stderr as string)).trim());
+      
+      const structured = result.structuredContent;
+      if (structured) {
+        const { stdout, stderr, exitCode } = structured as unknown as BashStructuredOutput;
+        let output = (stdout + stderr).trim();
+        if (output.length > 400_000) {
+          output = output.slice(0, 400_000) + "\n\n... [TRUNCATED] ...\n(Output exceeded 400,000 characters)";
         }
 
-        return ((structured.stdout as string) + (structured.stderr as string)).trim();
-      }
+        if (exitCode !== 0) {
+          throw new Error(output);
+        }
 
-      if (originalName === "text_editor" && structured) {
-        return structured.result as string;
+        return output;
       }
-
-      return text;
     }
 
     throw new Error(`No SSE MCP server handles tool '${prefixedName}'`);

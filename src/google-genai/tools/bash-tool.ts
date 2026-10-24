@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 
 const COMMAND_TIMEOUT = 30_000;
-const CHAT_PREVIEW_LIMIT = 4000;
+const CHAT_PREVIEW_LIMIT = 400_000;
 const MARKER = "__BASH_END_7f3a9b__";
 
 export class BashTool {
@@ -46,6 +46,13 @@ export class BashTool {
         if (new RegExp("\\b" + cmd + "\\b").test(input.command)) {
           throw new Error(`The ${gWord} ${cmd} command is locked out. Do not modify version control state.`);
         }
+      }
+    }
+
+    const blockedWebCommands = ["curl", "wget"];
+    for (const cmd of blockedWebCommands) {
+      if (new RegExp("\\b" + cmd + "\\b").test(input.command)) {
+        throw new Error(`The '${cmd}' command is blocked at the bash-tool level. Always use the dedicated 'fetch_url_context' tool to inspect or browse URLs.`);
       }
     }
 

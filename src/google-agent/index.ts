@@ -196,7 +196,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       chatJid,
       message: `Group JID: ${input.group.jid}\nFolder: ${input.group.folder}\nThinking Level: ${input.group.thinkingLevel}\nTotal: ${totalTokens}\nCached: ${cachedTokens}\nUncached-Input: ${uncached}\nOutput: ${output}`,
     });
-    if (totalTokens >= 300_000) await runCompaction(input.group);
+    if (totalTokens >= 120_000) await runCompaction(input.group);
   };
 
   return {

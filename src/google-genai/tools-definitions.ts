@@ -29,26 +29,27 @@ ast-grep (sg) is pre-installed for structural AST code search and rewriting:
   },
 };
 
-export const functionDeclarations: Interactions.Tool[] = [
-  {
-    type: "function",
-    name: "fetch_url_context",
-    description: "Browse a specific URL and extract targeted information based on custom instructions or questions.",
-    parameters: {
-      type: "object",
-      properties: {
-        url: {
-          type: "string",
-          description: "The full web URL to browse.",
-        },
-        query: {
-          type: "string",
-          description: "Specific questions, focus areas, or instructions on what exact information to extract from the page.",
-        },
+export const fetchUrlContextFunctionDeclaration: Interactions.Tool = {
+  type: "function",
+  name: "fetch_url_context",
+  description: "Browse a specific URL and extract targeted information based on custom instructions or questions.",
+  parameters: {
+    type: "object",
+    properties: {
+      url: {
+        type: "string",
+        description: "The full web URL to browse.",
       },
-      required: ["url", "query"],
+      query: {
+        type: "string",
+        description: "Specific questions, focus areas, or instructions on what exact information to extract from the page.",
+      },
     },
+    required: ["url", "query"],
   },
+};
+
+export const memoryFunctionDeclarations: Interactions.Tool[] = [
   {
     type: "function",
     name: "save_memory",
@@ -110,10 +111,11 @@ export const functionDeclarations: Interactions.Tool[] = [
       required: ["id"],
     },
   },
-  {
-    type: "google_search",
-  },
 ];
+
+export const googleSearchDeclaration: Interactions.Tool = {
+  type: "google_search",
+};
 
 export const generateMediaFunctionDeclarations: Interactions.Tool[] = [
   {

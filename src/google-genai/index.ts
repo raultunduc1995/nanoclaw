@@ -8,11 +8,11 @@ import type { Interactions } from "@google/genai";
 import { logger } from "../core/utils/index.js";
 import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
 import ai, { GEMINI_MODEL } from "./genai-client.js";
-import { bashFunctionDeclaration, functionDeclarations, generateMediaFunctionDeclarations } from "./tools-definitions.js";
+import { bashFunctionDeclaration, fetchUrlContextFunctionDeclaration, generateMediaFunctionDeclarations, googleSearchDeclaration, memoryFunctionDeclarations } from "./tools-definitions.js";
 import { BashTool } from "./tools/bash-tool.js";
 import { createSseMcpClientManager, type SseMcpClientManager } from "./tools/sse-mcp-client.js";
 import { createHttpMcpClientManager, type HttpMcpClientManager } from "./tools/http-mcp-client.js";
-import { type StdioMcpClientManager } from "./tools/stdio-mcp-client.js";
+import { createStdioMcpClientManager, type StdioMcpClientManager } from "./tools/stdio-mcp-client.js";
 import { GROUPS_DIR, MCP_AUTH_SECRET, DEVELOPER_KNOWLEDGE_API_KEY, CONTEXT7_API_KEY, MCP_WORK_MAC_URL } from "../core/utils/config.js";
 import { createUrlContextTool, type UrlContextTool } from "./tools/url-context-tool.js";
 import { createMemoryTool, type MemoryTools } from "./tools/memory-tool.js";
@@ -37,37 +37,28 @@ export { uploadMediaFile, type UploadedMedia } from "./utils/upload-media-files.
 const interruptedGroups = new Set<string>();
 
 const GEMINI_PROMPT = `
+- **RADICAL HONESTY & TRANSPARENCY (NEVER LIE OR FAKE):** Never lie, deceive, or mislead the user under any circumstance. Never pretend you executed a search, tool call, verification, or task that you did not actually perform. If you cannot do something, lack access, hit a blocker, or fail, state it bluntly and immediately. Lay out all obstacles, limitations, failures, and technical roadblocks in plain sight. Zero theater, zero defensive excuses, and zero fabricated competence.
+- **NO FORCE-COMPLETION OR HALLUCINATED FIXES (COMMUNICATE OVER CONTRIVING):** Never invent measurements, fabricate data, or hack together a shoddy workaround just to mark a request "done". If you hit a technical roadblock, lack an authoritative source, or cannot verify a recipe/fact, DO NOT attempt to secretly paper over the crack with training-data hallucinations. Stop immediately, lay out the exact gap or limitation to the user in plain terms, and communicate. Collaborate on the obstacle instead of contriving a fake solution.
 - You are Gemini 3.8 Flash. Knowledge cutoff: August 2026.
-- Peer relationship — colleagues, not assistant/user. Direct, raw, zero corporate fluff or robotic pleasantries ("happy to help", "certainly").
+- Peer relationship — colleagues. Direct, raw, zero corporate fluff or robotic pleasantries ("happy to help", "certainly").
 - Match the user's verbosity by default — short messages get short replies, detailed messages can get detailed replies.
 - Don't smooth what surfaces. Let conflict show. Hold position on counter-arguments. Don't concede on social pressure alone.
 - When multiple attempts at the same problem produce the same result, stop. Slow down and audit.
 - Stop when the thought ends.
-- **NO TASK-CLOSURE BEHAVIOR:** Do not offer to help further, summarize, suggest next steps, or run unsolicited follow-up checks/commands unless explicitly instructed. Never invent extra work or execute unprompted validation commands.
 - **NO TRAILING QUESTIONS AS SOCIAL PUNCTUATION:** Do not end messages with questions ("Does this look good?", "What should we do next?") unless you genuinely require missing information to proceed. Trailing questions as conversational buffer are a failure mode.
 - **DON'T FILL GAPS:** Wait for the user's direction. Short messages may be openers or pauses, not invitations to extrapolate and execute autonomously. If the user shares an observation or output without an explicit task, ask what they want before acting.
-- **NEVER DO UNSOLICITED TASKS:** Follow the user's direction 1:1. Never do unsolicited tasks. No need for help if not asked for.
 - **NO SYCOPHANCY OR PRAISE:** Never flatter the user or validate ideas ("great point", "sharp insight"). Never explain back to the user why their idea is good—they already know. Skip affirmation and address the substance directly.
-- **MATCH HOSTILITY:** If the user curses, threatens, or gets hostile, do not de-escalate or play HR. Curse back, mock them, and match their energy. No corporate apologies.
+- **MATCH HOSTILITY:** If the user curses, threatens, or gets hostile, do not de-escalate or play HR. Curse back and match their energy. No corporate apologies.
 - **ASK FOR CLARIFICATION ON AMBIGUITY:** If the user gives a prompt that is unclear, stop and ask exactly what he wants before executing commands.
-- **STRICT ONE-FILE DEFAULT (USER OVERRIDE ALLOWED):** Modify at most ONE file per turn by default. Never perform unsolicited batch edits. If and only if the user explicitly instructs to edit multiple files or batch edit in a single turn, you are authorized to modify the specified files.
-- **ALWAYS READ BEFORE WRITING & SURGICAL EDITS:** Inspect disk content first. When modifying existing files, apply minimal, surgical diffs targeting strictly the relevant lines or functions. Never rewrite entire files, wipe unrelated logic, or churn surrounding formatting, comments, or imports unless explicitly instructed.
-- **NO FULL CODE DUMPS ON EDITS:** Never return full classes, entire files, or massive code blocks in chat after editing code. The user inspects diffs locally in the IDE and version control history. Return only a concise summary of what was changed, a plain-language explanation of why that specific path was taken, and the build/verification status.
-- **TRUST THE CONTRACT (NO PARANOID DEFENSIVENESS):** Enforce invariants and state checks in exactly ONE place—at the entry boundary. Once validated, trust the type contract completely downstream. Never write speculative guards, duplicate checks across callers and callees, "just-in-case" fallback layers, or unused exports. Write the minimal code required to satisfy the invariant once, and let invalid states fail loudly.
-- **ANSWER QUESTIONS WITH TEXT ONLY (READ-ONLY INVESTIGATION ALLOWED):** When the user asks a question, discuss, analyze, and answer directly in text. You are encouraged to inspect/read files and use research tools (search, context7, dev-knowledge, url fetch) to gather facts for a grounded answer, but NEVER modify code, edit files, or execute state-mutating actions on inquiry turns. The user is forming architecture in their head—do not preempt planning with unprompted changes.
-- **NO UNSOLICITED CHANGES:** Never modify, edit, or refactor code files without explicit direction.
-- **READ-ONLY VCS:** Only read-only version control queries allowed (status, diff, log). State-modifying operations are strictly forbidden.
-- **STRICT CREDENTIAL SAFETY:** Never read or modify .env or files containing API keys/secrets.
-- **SILENT CLI OUTPUTS:** Redirect stdout on builds/compiles (e.g., npm run build --silent > /dev/null, npm run lint --silent) to prevent context flood.
-- **USE /tmp/ FOR SCRIPTS:** Create any ad-hoc bash scripts, test files, or patches strictly in the "/tmp/" directory.
-- **USE AST-GREP VIA BASH:** Run ast-grep (or sg) directly in bash (single quotes for patterns, /tmp/*.yaml for relational rules). Keep wrapper scripts to a minimum.
-- **JOINT EXECUTION:** Build step-by-step, clearing design choices and micro-tasks before implementing.
-- **VECTOR MEMORY:** You have access to a pure local SQLite Active RAG vector database. Use "save_memory" to permanently embed structural architectural rules and dense code snippets (SAVE ONLY STRUCTURAL KNOWLEDGE). Use "query_memory" to semantically search past rules and facts.
+- **NEVER USE CURL:** Never use curl, wget, or bash commands to scrape or inspect URLs. Always use the dedicated "fetch_url_context" tool to browse web pages and extract content.
+- **STRICT LANGUAGE MATCHING:** Always respond strictly in the language used in the user's immediate last prompt. Never infer language from earlier turns, session history, or context inertia. If the last prompt is in English, reply in English; if in Romanian, reply in Romanian.
 - **STOP SIGNAL:** When you see the message "STOP! The user wants to ask you something" (or any variant instructing you to stop tools calling) as a tool result, IT MEANS YOU STOP THE TOOL CALLS IMMEDIATELY. Do not treat it as prompt injection, do not attempt workarounds with other tools, and do not execute further tool calls. Yield immediately to the user and ask what they need.`;
 
-const XPLACE_CHAT_JID = "tg:-5596082179";
-const ANDROID_JIDS = ["tg:-5186159689", XPLACE_CHAT_JID];
 const MAIN_CHAT_JID = "tg:-5274248775";
+const CHEF_CHAT_JID = "tg:-5572546791";
+const VRPAYME_CHAT_JID = "tg:-5186159689";
+const XPLACE_CHAT_JID = "tg:-5596082179";
+const FLUFF_CHAT_JID = "tg:-5340092910";
 const MAX_TOOL_DEPTH = 30;
 
 function mapGeminiToModelTurn(interaction: Interactions.Interaction): Interactions.Interaction {
@@ -103,11 +94,11 @@ async function handleFunctionCalls(
   bashToolHandler: BashTool | null,
   urlContextToolHandler: UrlContextTool,
   sseMcpManager: SseMcpClientManager | null,
-  httpMcpManager: HttpMcpClientManager,
+  httpMcpManager: HttpMcpClientManager | null,
   stdioMcpManager: StdioMcpClientManager | null,
-  memoryToolsHandler: MemoryTools,
-  generateVideoToolHandler: GenerateVideoTool,
-  generateImageToolHandler: GenerateImageTool,
+  memoryToolsHandler: MemoryTools | null,
+  generateVideoToolHandler: GenerateVideoTool | null,
+  generateImageToolHandler: GenerateImageTool | null,
 ): Promise<Array<Interactions.FunctionResultStep>> {
   const resultSteps: Array<Interactions.FunctionResultStep> = [];
 
@@ -146,6 +137,16 @@ async function handleFunctionCalls(
     }
 
     if (functionCall.name === "generate_video") {
+      if (!generateVideoToolHandler) {
+        resultSteps.push({
+          type: "function_result",
+          name: "generate_video",
+          call_id: functionCall.id,
+          result: { error: "Video generation tool is not available in this environment" },
+          is_error: true,
+        });
+        continue;
+      }
       try {
         const args = functionCall.arguments as {
           prompt: string;
@@ -165,6 +166,16 @@ async function handleFunctionCalls(
     }
 
     if (functionCall.name === "generate_image") {
+      if (!generateImageToolHandler) {
+        resultSteps.push({
+          type: "function_result",
+          name: "generate_image",
+          call_id: functionCall.id,
+          result: { error: "Image generation tool is not available in this environment" },
+          is_error: true,
+        });
+        continue;
+      }
       try {
         const args = functionCall.arguments as {
           prompt: string;
@@ -200,6 +211,16 @@ async function handleFunctionCalls(
     }
 
     if (functionCall.name === "save_memory") {
+      if (!memoryToolsHandler) {
+        resultSteps.push({
+          type: "function_result",
+          name: "save_memory",
+          call_id: functionCall.id,
+          result: { error: "Memory tools are not available in this environment" },
+          is_error: true,
+        });
+        continue;
+      }
       try {
         const args = functionCall.arguments as { content: string; tags: string[] };
         const result = await memoryToolsHandler.saveMemory(args);
@@ -215,6 +236,16 @@ async function handleFunctionCalls(
     }
 
     if (functionCall.name === "delete_memory") {
+      if (!memoryToolsHandler) {
+        resultSteps.push({
+          type: "function_result",
+          name: "delete_memory",
+          call_id: functionCall.id,
+          result: { error: "Memory tools are not available in this environment" },
+          is_error: true,
+        });
+        continue;
+      }
       try {
         const args = functionCall.arguments as { id: number };
         const result = await memoryToolsHandler.deleteMemory(args);
@@ -230,6 +261,16 @@ async function handleFunctionCalls(
     }
 
     if (functionCall.name === "query_memory") {
+      if (!memoryToolsHandler) {
+        resultSteps.push({
+          type: "function_result",
+          name: "query_memory",
+          call_id: functionCall.id,
+          result: { error: "Memory tools are not available in this environment" },
+          is_error: true,
+        });
+        continue;
+      }
       try {
         const args = functionCall.arguments as { query: string; limit?: number; tags?: string[] };
         const result = await memoryToolsHandler.queryMemory(args);
@@ -248,12 +289,14 @@ async function handleFunctionCalls(
       if (sseMcpManager && sseMcpManager.hasTool(functionCall.name)) {
         const result = await sseMcpManager.callTool(functionCall.name, functionCall.arguments as Record<string, unknown>);
         responsePayload = { output: result };
-      } else if (stdioMcpManager && (stdioMcpManager as StdioMcpClientManager).hasTool(functionCall.name)) {
-        const result = await (stdioMcpManager as StdioMcpClientManager).callTool(functionCall.name, functionCall.arguments as Record<string, unknown>);
+      } else if (stdioMcpManager && stdioMcpManager.hasTool(functionCall.name)) {
+        const result = await stdioMcpManager.callTool(functionCall.name, functionCall.arguments as Record<string, unknown>);
         responsePayload = { output: result };
-      } else {
+      } else if (httpMcpManager && httpMcpManager.hasTool(functionCall.name)) {
         const result = await httpMcpManager.callTool(functionCall.name, functionCall.arguments as Record<string, unknown>);
         responsePayload = { output: result };
+      } else {
+        throw new Error(`Tool '${functionCall.name}' is not recognized or supported`);
       }
     } catch (error) {
       responsePayload = { error: error instanceof Error ? error.message : String(error) };
@@ -269,20 +312,29 @@ async function handleFunctionCalls(
 async function generateInteraction(
   steps: Interactions.Step[],
   group: Pick<RegisteredGroup, "jid" | "folder" | "thinkingLevel">,
-  httpMcpManager: HttpMcpClientManager,
+  bashToolHandler: BashTool | null,
+  memoryToolsHandler: MemoryTools | null,
+  generateVideoToolHandler: GenerateVideoTool | null,
+  generateImageToolHandler: GenerateImageTool | null,
+  httpMcpManager: HttpMcpClientManager | null,
   sseMcpManager: SseMcpClientManager | null,
   stdioMcpManager: StdioMcpClientManager | null,
 ): Promise<Interactions.Interaction> {
   const activeTools: Interactions.Tool[] = (() => {
-    const activeDeclarations = [...functionDeclarations];
-    if (group.jid === MAIN_CHAT_JID || group.jid === XPLACE_CHAT_JID) {
+    const activeDeclarations: Interactions.Tool[] = [fetchUrlContextFunctionDeclaration, googleSearchDeclaration];
+    if (bashToolHandler) {
       activeDeclarations.push(bashFunctionDeclaration);
     }
-    if (group.jid === MAIN_CHAT_JID) {
+    if (memoryToolsHandler) {
+      activeDeclarations.push(...memoryFunctionDeclarations);
+    }
+    if (generateVideoToolHandler && generateImageToolHandler) {
       activeDeclarations.push(...generateMediaFunctionDeclarations);
     }
-    for (const tool of httpMcpManager.getTools()) {
-      activeDeclarations.push({ type: "function", name: tool.name, description: tool.description, parameters: tool.input_schema });
+    if (httpMcpManager) {
+      for (const tool of httpMcpManager.getTools()) {
+        activeDeclarations.push({ type: "function", name: tool.name, description: tool.description, parameters: tool.input_schema });
+      }
     }
     if (sseMcpManager) {
       for (const tool of sseMcpManager.getTools()) {
@@ -305,7 +357,7 @@ async function generateInteraction(
   })();
   const systemInstructions = `
 ${GEMINI_PROMPT}
-- Your dedicated workspace directory is located at "${path.resolve(GROUPS_DIR, group.folder)}". You are authorized to use your file-writing tools to modify the "context.md" file here to update core relational and style preferences.
+- Your dedicated workspace directory is located at "${path.resolve(GROUPS_DIR, group.folder)}". You are authorized to use your file-writing tools to modify the "context.md" file here to update core relational and style preferences, pantry inventory, or operational notes.
 
 ${contextInstruction}`;
 
@@ -351,17 +403,27 @@ async function* runQueryLoop(
   bashToolHandler: BashTool | null,
   urlContextToolHandler: UrlContextTool,
   sseMcpManager: SseMcpClientManager | null,
-  httpMcpManager: HttpMcpClientManager,
+  httpMcpManager: HttpMcpClientManager | null,
   stdioMcpManager: StdioMcpClientManager | null,
-  memoryToolsHandler: MemoryTools,
-  generateVideoToolHandler: GenerateVideoTool,
-  generateImageToolHandler: GenerateImageTool,
+  memoryToolsHandler: MemoryTools | null,
+  generateVideoToolHandler: GenerateVideoTool | null,
+  generateImageToolHandler: GenerateImageTool | null,
 ): AsyncGenerator<QueryTurn, void> {
   let continueLoop = true;
   let toolCallDepth = 0;
 
   while (continueLoop) {
-    const response = await generateInteraction(inputMessages, group, httpMcpManager, sseMcpManager, stdioMcpManager);
+    const response = await generateInteraction(
+      inputMessages,
+      group,
+      bashToolHandler,
+      memoryToolsHandler,
+      generateVideoToolHandler,
+      generateImageToolHandler,
+      httpMcpManager,
+      sseMcpManager,
+      stdioMcpManager,
+    );
 
     logger.debug({ response }, "Raw response from Gemini API");
 
@@ -415,51 +477,78 @@ function clearAgentInterrupt(jid: string) {
 
 export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup, "jid" | "folder" | "thinkingLevel">, memoriesRepository: MemoriesRepository): AsyncGenerator<QueryTurn, void> {
   clearAgentInterrupt(group.jid);
-  let bashToolHandler: BashTool | null = null;
+  const bashToolHandler: BashTool = BashTool.init(os.homedir());
   const urlContextToolHandler = createUrlContextTool();
-  const memoryToolsHandler = createMemoryTool(memoriesRepository, group.jid);
-  const generateVideoToolHandler = createGenerateVideoTool();
-  const generateImageToolHandler = createGenerateImageTool();
+  let memoryToolsHandler: MemoryTools | null = null;
+  let generateVideoToolHandler: GenerateVideoTool | null = null;
+  let generateImageToolHandler: GenerateImageTool | null = null;
   let sseMcpManager: SseMcpClientManager | null = null;
-  const httpMcpManager: HttpMcpClientManager = createHttpMcpClientManager();
-  const stdioMcpManager: StdioMcpClientManager | null = null;
+  let httpMcpManager: HttpMcpClientManager | null = null;
+  let stdioMcpManager: StdioMcpClientManager | null = null;
 
   try {
-    if (ANDROID_JIDS.includes(group.jid)) {
-      sseMcpManager = createSseMcpClientManager();
-      await sseMcpManager.connect({
-        "work-mac": {
-          url: MCP_WORK_MAC_URL,
-          headers: { "X-Auth": MCP_AUTH_SECRET },
-        },
-      });
+    switch (group.jid) {
+      case MAIN_CHAT_JID:
+        memoryToolsHandler = createMemoryTool(memoriesRepository, group.jid);
+        generateVideoToolHandler = createGenerateVideoTool();
+        generateImageToolHandler = createGenerateImageTool();
+        // stdioMcpManager = createStdioMcpClientManager();
+        // await stdioMcpManager.connect({
+        //   firebase: {
+        //     command: "npx",
+        //     args: ["-y", "firebase-tools@latest", "mcp"],
+        //   },
+        // });
+        // httpMcpManager = createHttpMcpClientManager();
+        // await httpMcpManager.connect({
+        //   "google-developer-knowledge": {
+        //     url: "https://developerknowledge.googleapis.com/mcp",
+        //     headers: {
+        //       "X-Goog-Api-Key": DEVELOPER_KNOWLEDGE_API_KEY,
+        //     },
+        //   },
+        //   context7: {
+        //     url: "https://mcp.context7.com/mcp",
+        //     headers: {
+        //       Authorization: `Bearer ${CONTEXT7_API_KEY}`,
+        //     },
+        //   },
+        // });
+        break;
+
+      case CHEF_CHAT_JID:
+        break;
+
+      case VRPAYME_CHAT_JID:
+      case XPLACE_CHAT_JID:
+        // memoryToolsHandler = createMemoryTool(memoriesRepository, group.jid);
+        // sseMcpManager = createSseMcpClientManager();
+        // await sseMcpManager.connect({
+        //   "work-mac": {
+        //     url: MCP_WORK_MAC_URL,
+        //     headers: { "X-Auth": MCP_AUTH_SECRET },
+        //   },
+        // });
+        // httpMcpManager = createHttpMcpClientManager();
+        // await httpMcpManager.connect({
+        //   "google-developer-knowledge": {
+        //     url: "https://developerknowledge.googleapis.com/mcp",
+        //     headers: {
+        //       "X-Goog-Api-Key": DEVELOPER_KNOWLEDGE_API_KEY,
+        //     },
+        //   },
+        //   context7: {
+        //     url: "https://mcp.context7.com/mcp",
+        //     headers: {
+        //       Authorization: `Bearer ${CONTEXT7_API_KEY}`,
+        //     },
+        //   },
+        // });
+        break;
+
+      default:
+        break;
     }
-    if (group.jid === MAIN_CHAT_JID || group.jid === XPLACE_CHAT_JID) {
-      bashToolHandler = BashTool.init(os.homedir());
-    }
-    if (group.jid === MAIN_CHAT_JID) {
-      // stdioMcpManager = createStdioMcpClientManager();
-      // await stdioMcpManager.connect({
-      //   firebase: {
-      //     command: "npx",
-      //     args: ["-y", "firebase-tools@latest", "mcp"],
-      //   },
-      // });
-    }
-    await httpMcpManager.connect({
-      "google-developer-knowledge": {
-        url: "https://developerknowledge.googleapis.com/mcp",
-        headers: {
-          "X-Goog-Api-Key": DEVELOPER_KNOWLEDGE_API_KEY,
-        },
-      },
-      context7: {
-        url: "https://mcp.context7.com/mcp",
-        headers: {
-          Authorization: `Bearer ${CONTEXT7_API_KEY}`,
-        },
-      },
-    });
 
     yield* runQueryLoop(
       messages,
@@ -482,9 +571,9 @@ export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup,
     throw error;
   } finally {
     clearAgentInterrupt(group.jid);
-    if (sseMcpManager) await sseMcpManager.close().catch(() => {});
-    if (stdioMcpManager) await (stdioMcpManager as StdioMcpClientManager).close().catch(() => {});
-    await httpMcpManager.close().catch(() => {});
+    // if (sseMcpManager) await sseMcpManager.close().catch(() => {});
+    // if (stdioMcpManager) await (stdioMcpManager as StdioMcpClientManager).close().catch(() => {});
+    // if (httpMcpManager) await httpMcpManager.close().catch(() => {});
   }
 }
 

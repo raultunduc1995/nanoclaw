@@ -10,7 +10,7 @@ import { logger } from './logger.js';
 const expected = Buffer.from(config.authSecret);
 
 export const requireAuth: RequestHandler = (req, res, next) => {
-  const provided = req.header('x-auth');
+  const provided = (req.header('x-auth') || req.query.token) as string | undefined;
   if (!provided) {
     res.status(401).json({ error: 'missing X-Auth' });
     return;
