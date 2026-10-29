@@ -3,15 +3,44 @@ import { Temporal } from "@js-temporal/polyfill";
 import { query, RefusalError, uploadMediaFile, interruptAgentLoop } from "../google-genai/index.js";
 import type { QueryTurn, Content, Step, UserInputStep } from "../google-genai/index.js";
 import { logger, TIMEZONE } from "../core/utils/index.js";
-import type { GeminiAgentInput } from "./types.js";
 import type { RegisteredGroup, MemoriesRepository } from "../core/repositories/index.js";
+import type { ImageMimeType, VideoMimeType, AudioMimeType, PdfMimeType } from "../core/common/index.js";
 
-export type { GeminiAgentInput } from "./types.js";
+export type GeminiAgentInput = GeminiAgentTextInput | GeminiAgentImageInput | GeminiAgentVideoInput | GeminiAgentVoiceInput | GeminiAgentPdfInput;
 
 export interface GeminiAgent {
   runCompaction: (group: Pick<RegisteredGroup, "jid" | "folder" | "thinkingLevel">) => Promise<void>;
   runQuery: (input: GeminiAgentInput) => Promise<void>;
   interruptAgentLoop: (jid: string) => void;
+}
+
+interface GeminiAgentInputBase {
+  userName: string;
+  prompt: string;
+  group: Pick<RegisteredGroup, "jid" | "folder" | "thinkingLevel">;
+}
+interface GeminiAgentTextInput extends GeminiAgentInputBase {
+  kind: "text";
+}
+interface GeminiAgentImageInput extends GeminiAgentInputBase {
+  kind: "image";
+  blob: Blob;
+  mimeType: ImageMimeType;
+}
+interface GeminiAgentVideoInput extends GeminiAgentInputBase {
+  kind: "video";
+  blob: Blob;
+  mimeType: VideoMimeType;
+}
+interface GeminiAgentVoiceInput extends GeminiAgentInputBase {
+  kind: "voice";
+  blob: Blob;
+  mimeType: AudioMimeType;
+}
+interface GeminiAgentPdfInput extends GeminiAgentInputBase {
+  kind: "pdf";
+  blob: Blob;
+  mimeType: PdfMimeType;
 }
 
 const formatDateTime = (): string => Temporal.Now.zonedDateTimeISO(TIMEZONE).toPlainDateTime().toString({ fractionalSecondDigits: 0 });
@@ -196,7 +225,7 @@ export const createGeminiAgent = (deps: GeminiAgentDeps): GeminiAgent => {
       chatJid,
       message: `Group JID: ${input.group.jid}\nFolder: ${input.group.folder}\nThinking Level: ${input.group.thinkingLevel}\nTotal: ${totalTokens}\nCached: ${cachedTokens}\nUncached-Input: ${uncached}\nOutput: ${output}`,
     });
-    if (totalTokens >= 120_000) await runCompaction(input.group);
+    if (totalTokens >= 900_000) await runCompaction(input.group);
   };
 
   return {

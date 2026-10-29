@@ -68,7 +68,7 @@ export const createStdioMcpClientManager = (): StdioMcpClientManager => {
       });
 
       connections.set(serverName, { client, transport, tools, toolNameMap, serverName });
-      logger.info({ serverName, toolCount: tools.length }, "Stdio MCP server connected");
+      logger.debug({ serverName, toolCount: tools.length }, "Stdio MCP server connected");
     } catch (err) {
       logger.error({ serverName, error: err instanceof Error ? err.message : String(err) }, "Failed to connect to Stdio MCP server");
       await transport.close().catch(() => {});
@@ -124,7 +124,7 @@ export const createStdioMcpClientManager = (): StdioMcpClientManager => {
     for (const [name, conn] of connections) {
       try {
         await conn.transport.close();
-        logger.info({ serverName: name }, "Stdio MCP server disconnected");
+        logger.debug({ serverName: name }, "Stdio MCP server disconnected");
       } catch (err) {
         logger.warn({ serverName: name, error: err instanceof Error ? err.message : String(err) }, "Error closing Stdio MCP connection");
       }

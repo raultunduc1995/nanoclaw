@@ -37,6 +37,6 @@ export async function initLocalDatabase(): Promise<LocalResource> {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = await connect(dbPath);
   instance = await createLocalResource(db);
-  logger.info("Turso Database was initialized successfully");
+  logger.debug("Turso Database was initialized successfully");
   return instance;
 }

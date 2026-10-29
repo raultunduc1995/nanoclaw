@@ -36,7 +36,7 @@ export class TelegramChannel implements Channel {
       const chatType = ctx.chat.type;
       const chatName = chatType === "private" ? ctx.from?.first_name || "Private" : "title" in ctx.chat ? ctx.chat.title || "Unknown" : "Unknown";
       ctx.reply(`Chat ID: \`tg:${chatId}\`\nName: ${chatName}\nType: ${chatType}`, { parse_mode: "Markdown" });
-      // logger.info(`Register new bot: ${chatId}`);
+      // logger.debug(`Register new bot: tg${chatId}`);
       // this.opts.registerNewGroup(`tg:${chatId}`, { name: `${chatName}`, folder: `telegram-${chatName}`, addedAt: new Date().toISOString() });
     });
 
@@ -252,7 +252,7 @@ export class TelegramChannel implements Channel {
 
   async disconnect(): Promise<void> {
     this.bot.stop();
-    logger.info("Telegram bot stopped");
+    logger.debug("Telegram bot stopped");
   }
 
   async setTyping(jid: string): Promise<void> {

@@ -77,7 +77,7 @@ export const createSseMcpClientManager = (): SseMcpClientManager => {
       });
 
       connections.set(serverName, { client, transport, tools, toolNameMap, serverName });
-      logger.info({ serverName, toolCount: tools.length }, "SSE MCP server connected");
+      logger.debug({ serverName, toolCount: tools.length }, "SSE MCP server connected");
     } catch (err) {
       logger.error({ serverName, error: err instanceof Error ? err.message : String(err) }, "Failed to connect to SSE MCP server");
       await transport.close().catch(() => {});
@@ -127,7 +127,7 @@ export const createSseMcpClientManager = (): SseMcpClientManager => {
       }
 
       const result = await conn.client.callTool({ name: originalName, arguments: input });
-      
+
       const structured = result.structuredContent;
       if (structured) {
         const { stdout, stderr, exitCode } = structured as unknown as BashStructuredOutput;
@@ -151,7 +151,7 @@ export const createSseMcpClientManager = (): SseMcpClientManager => {
     for (const [name, conn] of connections) {
       try {
         await conn.transport.close();
-        logger.info({ serverName: name }, "SSE MCP server disconnected");
+        logger.debug({ serverName: name }, "SSE MCP server disconnected");
       } catch (err) {
         logger.warn({ serverName: name, error: err instanceof Error ? err.message : String(err) }, "Error closing SSE MCP connection");
       }

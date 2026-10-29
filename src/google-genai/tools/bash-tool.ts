@@ -52,7 +52,7 @@ export class BashTool {
     const blockedWebCommands = ["curl", "wget"];
     for (const cmd of blockedWebCommands) {
       if (new RegExp("\\b" + cmd + "\\b").test(input.command)) {
-        throw new Error(`The '${cmd}' command is blocked at the bash-tool level. Always use the dedicated 'fetch_url_context' tool to inspect or browse URLs.`);
+        throw new Error(`The '${cmd}' command is blocked at the bash-tool level. Always use the dedicated 'fetch'/'fetch_url_context' tool to inspect or browse URLs.`);
       }
     }
 

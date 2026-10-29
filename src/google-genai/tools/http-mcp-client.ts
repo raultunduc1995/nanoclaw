@@ -67,7 +67,7 @@ export function createHttpMcpClientManager(): HttpMcpClientManager {
       tools,
       toolNameMap,
     });
-    logger.info({ serverName, toolCount: tools.length }, "Connected to HTTP MCP server");
+    logger.debug({ serverName, toolCount: tools.length }, "Connected to HTTP MCP server");
   };
 
   return {
@@ -102,9 +102,7 @@ export function createHttpMcpClientManager(): HttpMcpClientManager {
 
         const result = await conn.client.callTool({ name: originalName, arguments: input });
         const content = result.content as Array<{ type: string; text?: string }>;
-        const textParts = content
-          .filter((c) => c.type === "text" && typeof c.text === "string")
-          .map((c) => c.text as string);
+        const textParts = content.filter((c) => c.type === "text" && typeof c.text === "string").map((c) => c.text as string);
         const text = textParts.join("\n");
 
         if (result.isError) {
@@ -121,7 +119,7 @@ export function createHttpMcpClientManager(): HttpMcpClientManager {
       for (const [name, conn] of connections) {
         try {
           await conn.transport.close();
-          logger.info({ serverName: name }, "HTTP MCP server disconnected");
+          logger.debug({ serverName: name }, "HTTP MCP server disconnected");
         } catch (err) {
           logger.warn({ serverName: name, error: err instanceof Error ? err.message : String(err) }, "Error closing HTTP MCP connection");
         }

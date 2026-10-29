@@ -6,12 +6,16 @@ import type { ThinkingLevel } from "./core/repositories/groups-repository.js";
 // import { startVoiceServer } from "./voice/index.js";
 import { type Step } from "./google-genai/index.js";
 import { createGeminiAgent, type GeminiAgent, type GeminiAgentInput } from "./google-agent/index.js";
+import { type MessageParam } from "./openai/index.js";
+import { createDeepSeekAgent, type DeepSeekAgent } from "./deepseek-agent/index.js";
 
 let groupsRepo: GroupsRepository;
 let channelsRegistry: ChannelsRegistry;
 let geminiAgent: GeminiAgent;
+let deepSeekAgent: DeepSeekAgent;
 
 const activeRuns = new Map<string, Promise<void>>();
+const DEEPSEEK_GROUP_JIDS = new Set(["tg:-5410596622", "tg:-5583249540"]);
 
 const initMain = async () => {
   channelsRegistry = createChannelsRegistry();
@@ -21,22 +25,36 @@ const initMain = async () => {
   const historyRepo = createHistoryRepository(localResource.history);
   const memoriesRepo = createMemoriesRepository(localResource.memories);
 
+  const onOutput = async ({ chatJid, message }: { chatJid: string; message: string }) => {
+    const channel = channelsRegistry.findChannel(chatJid);
+    if (channel) {
+      await channel.sendMessage(chatJid, message);
+    }
+  };
+
+  const onError = async ({ chatJid, message }: { chatJid: string; message: string }) => {
+    const channel = channelsRegistry.findChannel(chatJid);
+    if (channel) {
+      await channel.sendMessage(chatJid, `Error: ${message}`);
+    }
+  };
+
   geminiAgent = createGeminiAgent({
     memoriesRepository: memoriesRepo,
-    onOutput: async ({ chatJid, message }) => {
-      const channel = channelsRegistry.findChannel(chatJid);
-      if (channel) {
-        await channel.sendMessage(chatJid, message);
-      }
-    },
-    onError: async ({ chatJid, message }) => {
-      const channel = channelsRegistry.findChannel(chatJid);
-      if (channel) {
-        await channel.sendMessage(chatJid, `Error: ${message}`);
-      }
-    },
-    loadHistory: async (jid: string): Promise<Step[]> => await historyRepo.load(jid),
-    appendHistory: historyRepo.append,
+    onOutput,
+    onError,
+    loadHistory: async (jid: string): Promise<Step[]> => await historyRepo.loadSteps(jid),
+    appendHistory: historyRepo.appendStep,
+    deleteHistoryFrom: historyRepo.deleteFrom,
+    clearHistory: historyRepo.clear,
+  });
+
+  deepSeekAgent = createDeepSeekAgent({
+    memoriesRepository: memoriesRepo,
+    onOutput,
+    onError,
+    loadHistory: async (jid: string): Promise<MessageParam[]> => await historyRepo.loadMessages(jid),
+    appendHistory: historyRepo.appendMessage,
     deleteHistoryFrom: historyRepo.deleteFrom,
     clearHistory: historyRepo.clear,
   });
@@ -44,7 +62,7 @@ const initMain = async () => {
 
 const registerCleanupHandlers = () => {
   const shutdown = async (signal: string) => {
-    logger.info({ signal }, "Shutdown signal received");
+    logger.debug({ signal }, "Shutdown signal received");
     await channelsRegistry.disconnectAll();
     process.exit(0);
   };
@@ -54,6 +72,18 @@ const registerCleanupHandlers = () => {
 };
 
 const runAgentLoop = async (inputMsg: InboundMessage, group: RegisteredGroup) => {
+  if (DEEPSEEK_GROUP_JIDS.has(group.jid)) {
+    if (inputMsg.kind === "text") {
+      await deepSeekAgent.runQuery({ kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group });
+      return;
+    }
+    if (inputMsg.kind === "image") {
+      await deepSeekAgent.runQuery({ kind: "image", userName: inputMsg.userName, prompt: inputMsg.prompt, blob: inputMsg.blob, mimeType: inputMsg.mimeType, group });
+      return;
+    }
+    return;
+  }
+
   const initialInput: GeminiAgentInput =
     inputMsg.kind === "text"
       ? { kind: "text", userName: inputMsg.userName, prompt: inputMsg.prompt, group }
@@ -87,16 +117,24 @@ const registerChannels = async () => {
     },
     onCommand: async (command, group, payload) => {
       if (command === "stop") {
+        if (DEEPSEEK_GROUP_JIDS.has(group.jid)) return;
         geminiAgent.interruptAgentLoop(group.jid);
         return;
       }
       if (command === "compact") {
+        if (DEEPSEEK_GROUP_JIDS.has(group.jid)) {
+          await deepSeekAgent.runCompaction(group).catch((err) => {
+            logger.error({ err, jid: group.jid }, "Failed to manually compact context");
+          });
+          return;
+        }
         await geminiAgent.runCompaction(group).catch((err) => {
           logger.error({ err, jid: group.jid }, "Failed to manually compact context");
         });
         return;
       }
       if (command === "thinking") {
+        if (DEEPSEEK_GROUP_JIDS.has(group.jid)) return;
         const level = payload?.trim().toLowerCase();
         const validLevels: ThinkingLevel[] = ["low", "medium", "high"];
         if (level && validLevels.includes(level as ThinkingLevel)) {

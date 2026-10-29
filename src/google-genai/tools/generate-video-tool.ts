@@ -27,7 +27,7 @@ export const createGenerateVideoTool = (): GenerateVideoTool => {
           },
           store: true,
         });
-        logger.info({ response }, "Video generation interaction response");
+        logger.debug({ response }, "Video generation interaction response");
 
         const videoOutput = response.output_video;
         if (!videoOutput?.uri) {

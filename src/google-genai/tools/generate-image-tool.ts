@@ -62,7 +62,7 @@ export const createGenerateImageTool = (): GenerateImageTool => {
           },
           store: false,
         });
-        logger.info({ response }, "Image generation interaction response");
+        logger.debug({ response }, "Image generation interaction response");
 
         const imageOutput = response.output_image;
         if (!imageOutput?.data) {

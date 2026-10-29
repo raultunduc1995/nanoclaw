@@ -409,10 +409,7 @@ async function* runQueryLoop(
   generateVideoToolHandler: GenerateVideoTool | null,
   generateImageToolHandler: GenerateImageTool | null,
 ): AsyncGenerator<QueryTurn, void> {
-  let continueLoop = true;
-  let toolCallDepth = 0;
-
-  while (continueLoop) {
+  for (let toolCallDepth = 1; ; toolCallDepth++) {
     const response = await generateInteraction(
       inputMessages,
       group,
@@ -437,35 +434,27 @@ async function* runQueryLoop(
     yield mapGeminiToModelTurn(response);
 
     const toolCalls = steps.filter((s): s is Interactions.FunctionCallStep => s.type === "function_call");
-    if (toolCalls.length > 0) {
-      toolCallDepth++;
-      let functionResultSteps: Array<Interactions.FunctionResultStep>;
+    if (toolCalls.length === 0) return;
 
-      if (toolCallDepth > MAX_TOOL_DEPTH) {
-        functionResultSteps = generateMaxToolDepthReachedResponse(toolCalls, toolCallDepth);
-      } else {
-        functionResultSteps = await handleFunctionCalls(
-          group,
-          toolCalls,
-          bashToolHandler,
-          urlContextToolHandler,
-          sseMcpManager,
-          httpMcpManager,
-          stdioMcpManager,
-          memoryToolsHandler,
-          generateVideoToolHandler,
-          generateImageToolHandler,
-        );
-      }
+    const functionResultSteps =
+      toolCallDepth > MAX_TOOL_DEPTH
+        ? generateMaxToolDepthReachedResponse(toolCalls, toolCallDepth)
+        : await handleFunctionCalls(
+            group,
+            toolCalls,
+            bashToolHandler,
+            urlContextToolHandler,
+            sseMcpManager,
+            httpMcpManager,
+            stdioMcpManager,
+            memoryToolsHandler,
+            generateVideoToolHandler,
+            generateImageToolHandler,
+          );
 
-      logger.debug({ functionResultSteps }, "User query turn from function calls");
-      inputMessages.push(...functionResultSteps);
-      yield functionResultSteps;
-
-      continueLoop = true;
-    } else {
-      continueLoop = false;
-    }
+    logger.debug({ functionResultSteps }, "User query turn from function calls");
+    inputMessages.push(...functionResultSteps);
+    yield functionResultSteps;
   }
 }
 
@@ -571,6 +560,7 @@ export async function* query(messages: Array<Step>, group: Pick<RegisteredGroup,
     throw error;
   } finally {
     clearAgentInterrupt(group.jid);
+    bashToolHandler.close();
     // if (sseMcpManager) await sseMcpManager.close().catch(() => {});
     // if (stdioMcpManager) await (stdioMcpManager as StdioMcpClientManager).close().catch(() => {});
     // if (httpMcpManager) await httpMcpManager.close().catch(() => {});
