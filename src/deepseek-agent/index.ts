@@ -75,7 +75,6 @@ export const createDeepSeekAgent = (deps: DeepSeekAgentDeps): DeepSeekAgent => {
 
   const handleResponse = async (chatJid: string, history: Array<MessageParam>, response: QueryTurn) => {
     if (Array.isArray(response)) {
-      logger.debug({ response }, "DeepSeek tool results");
       for (const toolMessage of response) {
         await appendToHistory(chatJid, history, toolMessage);
       }
@@ -102,7 +101,6 @@ export const createDeepSeekAgent = (deps: DeepSeekAgentDeps): DeepSeekAgent => {
 
   const handleError = async (chatJid: string, e: unknown) => {
     const err = e instanceof Error ? e : new Error(String(e));
-    logger.error({ chatJid, err }, "DeepSeek error");
     await onError({ chatJid, message: err.message });
   };
 
@@ -113,19 +111,20 @@ export const createDeepSeekAgent = (deps: DeepSeekAgentDeps): DeepSeekAgent => {
     try {
       if (input.kind === "text" && input.prompt.length === 0) return undefined;
 
+      logger.debug({ input }, "Running DeepSeek user query");
       const userMessage = await createUserMessage(input);
-
-      logger.debug({ userMessage }, "Running DeepSeek user query");
       await appendToHistory(chatJid, history, userMessage);
 
       let lastTurn: QueryTurn | undefined;
       for await (const response of query([...history], input.group)) {
+        logger.debug({ response }, "DeepSeek API query response");
         lastTurn = response;
         await handleResponse(chatJid, history, response);
       }
 
       return lastTurn;
     } catch (e) {
+      logger.error({ chatJid, e }, "DeepSeek error");
       history.length = rollbackLength;
       await deps.deleteHistoryFrom(chatJid, rollbackLength + 1);
       await handleError(chatJid, e);
@@ -147,14 +146,13 @@ export const createDeepSeekAgent = (deps: DeepSeekAgentDeps): DeepSeekAgent => {
     });
     if (!queryTurn) return;
 
-    await deps.clearHistory(chatJid);
-
     let summary: string = "";
     if (!Array.isArray(queryTurn) && queryTurn.choices[0]?.message.content) {
       summary = queryTurn.choices[0].message.content.trim();
     }
     if (summary.length === 0) return;
 
+    await deps.clearHistory(chatJid);
     await runInternal(await deps.loadHistory(chatJid), {
       kind: "text",
       userName: "System",
@@ -172,15 +170,12 @@ export const createDeepSeekAgent = (deps: DeepSeekAgentDeps): DeepSeekAgent => {
 
     const usage = completion.usage;
     const totalTokens = usage.total_tokens ?? 0;
-    const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
-    const inputTokens = usage.prompt_tokens ?? 0;
-    const uncached = inputTokens - cachedTokens;
     const output = usage.completion_tokens ?? 0;
     const cacheHitTokens = usage.prompt_cache_hit_tokens ?? 0;
     const cacheMissTokens = usage.prompt_cache_miss_tokens ?? 0;
     await onOutput({
       chatJid,
-      message: `Group JID: ${input.group.jid}\nFolder: ${input.group.folder}\nThinking Level: ${input.group.thinkingLevel}\nTotal: ${totalTokens}\nCached: ${cachedTokens}\nUncached-Input: ${uncached}\nCache-Hit: ${cacheHitTokens}\nCache-Miss: ${cacheMissTokens}\nOutput: ${output}`,
+      message: `Group JID: ${input.group.jid}\nFolder: ${input.group.folder}\nTotal: ${totalTokens}\nCache-Hit: ${cacheHitTokens}\nCache-Miss: ${cacheMissTokens}\nOutput: ${output}`,
     });
     if (totalTokens >= 900_000) await runCompaction(input.group);
   };
